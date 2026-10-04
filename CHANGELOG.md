@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented `scripts/Hitbox.gd` with 7-layer collision bitmask, `setup(player_id)` parameterization (Layer 5 / Mask 6 for P1, Layer 7 / Mask 4 for P2), one-shot hit registration via `hit_consumed`, attack frame data presets (Punch and Kick), and facing-relative horizontal offsets.
+- Implemented `scripts/Hurtbox.gd` with 7-layer collision bitmask, `setup(player_id)` parameterization (Layer 4 for P1, Layer 6 for P2), dynamic standing (24x54 px) and crouching (24x32 px) geometry sizing, hit reception, and fighter dispatch contract.
+- Added comprehensive unit and integration test coverage:
+  - Headless GDScript tests in `tests/test_hitbox_hurtbox.gd` covering bitmask constants, player setup, collision matrix isolation, one-shot registration, attack presets, crouching geometry, fighter dispatch, invulnerability, and signal emission.
+  - Python test suite in `tests/test_hitbox_hurtbox.py` validating script contracts, class definitions, bitmasks, and mathematical invariants.
+  - Integrated hitbox and hurtbox test suite into `tests/test_runner.gd`.
 - Initialized `project.godot` with CPS-1 retro viewport configuration (384x224, 1152x672 window override, integer scaling, nearest-neighbor texture filtering).
 - Configured deterministic 60 Hz physics ticks rate (`physics/common/physics_ticks_per_second = 60`).
 - Configured 2D physics layer bitmasks (`WorldFloor`, `FighterBody`, `StageWall`, `P1_Hurtbox`, `P1_Hitbox`, `P2_Hurtbox`, `P2_Hitbox`).
