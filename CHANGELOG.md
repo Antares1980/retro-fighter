@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed headless Godot engine script parse error in `scripts/Main.gd` where `Fighter` type annotation failed during headless execution without pre-cached global script registry.
+- Improved headless runner node initialization in `scripts/Main.gd` to ensure robust node resolution (`$P1`, `$P2`, `$HUD`) and lifecycle handling when executed outside an active SceneTree.
+- Added headless editor import pass step (`godot --headless --editor --quit`) in CI workflow `.github/workflows/ci.yml`.
+
 ### Added
 - Implemented `scenes/Stage.tscn`, `scenes/HUD.tscn`, `scenes/Main.tscn`, `scripts/HUD.gd`, and `scripts/Main.gd` with match FSM orchestrator, timer countdown, announcer banners, and observable contracts:
   - `scenes/Stage.tscn`: 600 px width gradient sunset backdrop (600x224 px), cityscape silhouette `Polygon2D`, ground collision line at Y = 190 on Layer 1 (`WorldFloor`), and stage boundaries on Layer 4 (`StageWall`).

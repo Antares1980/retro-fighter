@@ -30,5 +30,7 @@ jobs:
           unzip -q Godot_v4.3-stable_linux.x86_64.zip
           sudo mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot
           chmod +x /usr/local/bin/godot
+      - name: Import project assets
+        run: godot --headless --editor --quit || true
       - name: Run Engine Foundation Tests
         run: godot --headless -s res://tests/test_runner.gd

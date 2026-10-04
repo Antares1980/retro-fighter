@@ -1,6 +1,8 @@
 class_name Main
 extends Node2D
 
+const FighterScript = preload("res://scripts/Fighter.gd")
+
 ## Main Match Loop & Orchestrator for Retro Fighter.
 ## Orchestrates the match FSM: ROUND_INTRO (1.5s) -> IN_ROUND (inputs active, timer 99s)
 ## -> ROUND_OVER (emits round_ended signal) -> RESET (3.0s delay, resets fighters, restores IDLE).
@@ -32,8 +34,8 @@ var state_timer: float = 0.0
 var last_winner_id: int = 0
 var last_reason: String = ""
 
-@onready var p1: Fighter = $P1 if has_node("P1") else null
-@onready var p2: Fighter = $P2 if has_node("P2") else null
+@onready var p1: CharacterBody2D = $P1 if has_node("P1") else null
+@onready var p2: CharacterBody2D = $P2 if has_node("P2") else null
 @onready var hud: CanvasLayer = $HUD if has_node("HUD") else null
 @onready var camera: Camera2D = $Camera2D if has_node("Camera2D") else null
 @onready var stage: Node2D = $Stage if has_node("Stage") else null
@@ -41,12 +43,29 @@ var last_reason: String = ""
 func _ready() -> void:
 	process_physics_priority = 50
 	_resolve_nodes()
+	if is_instance_valid(p1) and p1.has_method("_ready") and p1.get("hitbox") == null:
+		p1._ready()
+	if is_instance_valid(p2) and p2.has_method("_ready") and p2.get("hitbox") == null:
+		p2._ready()
+	if is_instance_valid(hud) and hud.has_method("_ready") and hud.get("timer_label") == null:
+		hud._ready()
 	start_match()
 
 func _resolve_nodes() -> void:
+	if p1 == null and has_node("P1"):
+		p1 = get_node("P1")
+	if p2 == null and has_node("P2"):
+		p2 = get_node("P2")
+	if hud == null and has_node("HUD"):
+		hud = get_node("HUD")
+	if camera == null and has_node("Camera2D"):
+		camera = get_node("Camera2D")
+	if stage == null and has_node("Stage"):
+		stage = get_node("Stage")
+
 	if p1 == null or p2 == null:
 		for child in get_children():
-			if child is Fighter:
+			if child.get_script() == FighterScript or (child is CharacterBody2D and "player_id" in child):
 				if child.player_id == 1 and p1 == null:
 					p1 = child
 				elif child.player_id == 2 and p2 == null:
