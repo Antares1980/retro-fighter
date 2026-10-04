@@ -622,6 +622,9 @@ func _apply_clamping() -> void:
 	var min_x: float = STAGE_MIN_X
 	var max_x: float = STAGE_MAX_X
 
+	if camera == null:
+		_find_opponent_and_camera()
+
 	if camera != null:
 		if camera.has_method("get_view_bounds"):
 			var bounds: Rect2 = camera.get_view_bounds()

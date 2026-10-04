@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented `scenes/Camera2D.tscn` and `scripts/DynamicFightCamera.gd` with dynamic camera tracking and viewport boundary clamping:
+  - Fixed zoom (1.0) pan-only framing maintaining retro 384x224 CPS-1 pixel aesthetics.
+  - Deterministic horizontal midpoint tracking between Player 1 and Player 2.
+  - Stage horizontal boundary clamping restricting camera center between X = 192 and X = 408 (keeping the 384 px viewport strictly within the 600 px stage bounds [0, 600]).
+  - Exposes `get_view_bounds() -> Rect2`, `left_bound`, and `right_bound` properties for viewport edge calculation.
+  - Integrated dynamic camera clamping in `scripts/Fighter.gd`, enforcing camera boundary clamping [camera.left + 16, camera.right - 16] and stage boundary clamping [16, 584] to prevent fighters from moving off-screen.
+- Added comprehensive unit and integration test coverage:
+  - Headless GDScript tests in `tests/test_camera.gd` covering scene and script instantiation, constants, fixed zoom, midpoint framing, camera clamping, view bounds calculations, automatic target resolution, single target fallback, and AC-06 fighter camera clamping integration (50 passing tests).
+  - Python tests in `tests/test_camera.py` validating files, script declarations, scene structure, methods, and mathematical invariants (8 tests).
+  - Registered `test_camera.gd` into `tests/test_runner.gd`.
 - Implemented `scenes/Fighter.tscn` and `scripts/Fighter.gd` with 13-state deterministic FSM, combat mechanics, and damage receiving:
   - 13 distinct states: `IDLE`, `WALK_FORWARD` (100 px/s), `WALK_BACKWARD` (80 px/s), `JUMP_SQUAT` (3 ticks), `JUMPING` (-420 px/s jump velocity, 980 px/s² gravity), `CROUCHING` (32 px hurtbox height), `ATTACK_PUNCH`, `ATTACK_KICK`, `BLOCKING`, `BLOCK_STUN`, `HIT_STUN`, `KNOCKDOWN`, `DEAD`.
   - Frame-accurate attack data presets for Punch (12 ticks total: 4 startup, 3 active, 5 recovery; 8 clean damage, 12 hit stun, 6 block stun, 40 px/s knockback) and Kick (19 ticks total: 7 startup, 4 active, 8 recovery; 14 clean damage, 18 hit stun, 8 block stun, 80 px/s knockback).
