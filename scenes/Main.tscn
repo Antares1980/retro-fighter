@@ -1,3 +1,24 @@
-[gd_scene format=3 uid="uid://c8xq2nvlj6qyo"]
+[gd_scene load_steps=6 format=3 uid="uid://c8xq2nvlj6qyo"]
+
+[ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/Stage.tscn" id="2_stage"]
+[ext_resource type="PackedScene" path="res://scenes/Fighter.tscn" id="3_fighter"]
+[ext_resource type="PackedScene" path="res://scenes/Camera2D.tscn" id="4_camera"]
+[ext_resource type="PackedScene" path="res://scenes/HUD.tscn" id="5_hud"]
 
 [node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="Stage" parent="." instance=ExtResource("2_stage")]
+
+[node name="Camera2D" parent="." instance=ExtResource("4_camera")]
+position = Vector2(300, 112)
+
+[node name="P1" parent="." instance=ExtResource("3_fighter")]
+position = Vector2(200, 190)
+
+[node name="P2" parent="." instance=ExtResource("3_fighter")]
+position = Vector2(400, 190)
+player_id = 2
+
+[node name="HUD" parent="." instance=ExtResource("5_hud")]

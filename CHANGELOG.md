@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `scripts/Fighter.gd` walk velocity test failures by restoring input action release checks for forward and backward walking, avoiding premature IDLE transitions when input axes are neutral.
+- Fixed `scripts/Main.gd` match FSM initialization so `ROUND_INTRO` entry logic (freezing inputs, displaying `FIGHT!` announcer banner) triggers deterministically upon `_ready()` and round reset.
+- Fixed headless Godot engine script parse error in `scripts/Main.gd` where `Fighter` type annotation failed during headless execution without pre-cached global script registry.
+- Improved headless runner node initialization in `scripts/Main.gd` to ensure robust node resolution (`$P1`, `$P2`, `$HUD`) and lifecycle handling when executed outside an active SceneTree.
+- Added headless editor import pass step (`godot --headless --editor --quit`) in CI workflow `.github/workflows/ci.yml`.
+
 ### Added
+- Implemented `scenes/Stage.tscn`, `scenes/HUD.tscn`, `scenes/Main.tscn`, `scripts/HUD.gd`, and `scripts/Main.gd` with match FSM orchestrator, timer countdown, announcer banners, and observable contracts:
+  - `scenes/Stage.tscn`: 600 px width gradient sunset backdrop (600x224 px), cityscape silhouette `Polygon2D`, ground collision line at Y = 190 on Layer 1 (`WorldFloor`), and stage boundaries on Layer 4 (`StageWall`).
+  - `scenes/HUD.tscn` & `scripts/HUD.gd`: Retro HUD featuring yellow-to-red depleting health bars for Player 1 and Player 2 (modulating yellow >50%, orange <=50%, red <=25%), 99-second countdown timer, and prominent center announcer banners ("FIGHT!", "K.O.", "TIME UP", "DRAW").
+  - `scripts/Main.gd`: Full 4-state match FSM (`ROUND_INTRO`, `IN_ROUND`, `ROUND_OVER`, `RESET`), timer countdown from 99s, KO/time-up/draw resolution, and observable signal `round_ended(winner_id: int, reason: String)` with `last_winner_id` and `last_reason`.
+  - `scenes/Main.tscn`: Root game scene wiring together Stage, Camera2D, Fighter P1 (X=200, Y=190), Fighter P2 (X=400, Y=190, player_id=2), and HUD.
+  - Implemented input freezing during `ROUND_INTRO` and `ROUND_OVER` in `scripts/Fighter.gd` (`inputs_frozen` flag and property) while maintaining physics and state transition integrity.
+- Added comprehensive unit and integration test coverage:
+  - Headless GDScript tests in `tests/test_stage_hud_orchestrator.gd` covering stage structure, HUD color transitions, main scene wiring, match FSM intro-to-round, AC-07 (KO and 3.0s auto-restart), AC-08 (timeout win determination), AC-09 (draw resolution on equal health and double KO), AC-10 (dummy mode persistence), and AC-11 (standalone launch readiness).
+  - Python tests in `tests/test_stage_hud_orchestrator.py` validating files, node hierarchies, constants, signals, and match loop decision logic (14 tests).
+  - Integrated `test_stage_hud_orchestrator.gd` into `tests/test_runner.gd`.
 - Implemented `scenes/Camera2D.tscn` and `scripts/DynamicFightCamera.gd` with dynamic camera tracking and viewport boundary clamping:
   - Fixed zoom (1.0) pan-only framing maintaining retro 384x224 CPS-1 pixel aesthetics.
   - Deterministic horizontal midpoint tracking between Player 1 and Player 2.
