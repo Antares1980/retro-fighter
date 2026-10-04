@@ -1,0 +1,115 @@
+import os
+import unittest
+
+class TestFighter(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cls.fighter_script_path = os.path.join(base_dir, "scripts", "Fighter.gd")
+        cls.fighter_scene_path = os.path.join(base_dir, "scenes", "Fighter.tscn")
+
+        with open(cls.fighter_script_path, "r", encoding="utf-8") as f:
+            cls.fighter_code = f.read()
+
+        with open(cls.fighter_scene_path, "r", encoding="utf-8") as f:
+            cls.fighter_scene = f.read()
+
+    def test_files_exist(self):
+        self.assertTrue(os.path.isfile(self.fighter_script_path), "scripts/Fighter.gd must exist")
+        self.assertTrue(os.path.isfile(self.fighter_scene_path), "scenes/Fighter.tscn must exist")
+
+    def test_class_declaration_and_inheritance(self):
+        self.assertIn("class_name Fighter", self.fighter_code)
+        self.assertIn("extends CharacterBody2D", self.fighter_code)
+
+    def test_13_states_in_enum(self):
+        expected_states = [
+            "IDLE",
+            "WALK_FORWARD",
+            "WALK_BACKWARD",
+            "JUMP_SQUAT",
+            "JUMPING",
+            "CROUCHING",
+            "ATTACK_PUNCH",
+            "ATTACK_KICK",
+            "BLOCKING",
+            "BLOCK_STUN",
+            "HIT_STUN",
+            "KNOCKDOWN",
+            "DEAD"
+        ]
+        for state in expected_states:
+            self.assertIn(state, self.fighter_code)
+
+    def test_movement_and_physics_constants(self):
+        self.assertIn("const MAX_HEALTH: int = 100", self.fighter_code)
+        self.assertIn("const WALK_FORWARD_SPEED: float = 100.0", self.fighter_code)
+        self.assertIn("const WALK_BACKWARD_SPEED: float = 80.0", self.fighter_code)
+        self.assertIn("const JUMP_VELOCITY: float = -420.0", self.fighter_code)
+        self.assertIn("const GRAVITY: float = 980.0", self.fighter_code)
+        self.assertIn("const JUMP_SQUAT_TICKS: int = 3", self.fighter_code)
+
+    def test_punch_frame_data_constants(self):
+        self.assertIn("const PUNCH_TOTAL_TICKS: int = 12", self.fighter_code)
+        self.assertIn("const PUNCH_STARTUP_TICKS: int = 4", self.fighter_code)
+        self.assertIn("const PUNCH_ACTIVE_TICKS: int = 3", self.fighter_code)
+        self.assertIn("const PUNCH_RECOVERY_TICKS: int = 5", self.fighter_code)
+        self.assertIn("const PUNCH_DAMAGE: int = 8", self.fighter_code)
+        self.assertIn("const PUNCH_HIT_STUN_TICKS: int = 12", self.fighter_code)
+        self.assertIn("const PUNCH_BLOCK_STUN_TICKS: int = 6", self.fighter_code)
+        self.assertIn("const PUNCH_KNOCKBACK: float = 40.0", self.fighter_code)
+
+    def test_kick_frame_data_constants(self):
+        self.assertIn("const KICK_TOTAL_TICKS: int = 19", self.fighter_code)
+        self.assertIn("const KICK_STARTUP_TICKS: int = 7", self.fighter_code)
+        self.assertIn("const KICK_ACTIVE_TICKS: int = 4", self.fighter_code)
+        self.assertIn("const KICK_RECOVERY_TICKS: int = 8", self.fighter_code)
+        self.assertIn("const KICK_DAMAGE: int = 14", self.fighter_code)
+        self.assertIn("const KICK_HIT_STUN_TICKS: int = 18", self.fighter_code)
+        self.assertIn("const KICK_BLOCK_STUN_TICKS: int = 8", self.fighter_code)
+        self.assertIn("const KICK_KNOCKBACK: float = 80.0", self.fighter_code)
+
+    def test_boundary_clamping_constants(self):
+        self.assertIn("const STAGE_MIN_X: float = 16.0", self.fighter_code)
+        self.assertIn("const STAGE_MAX_X: float = 584.0", self.fighter_code)
+        self.assertIn("const VIEWPORT_MARGIN_X: float = 16.0", self.fighter_code)
+
+    def test_core_methods_defined(self):
+        self.assertIn("func setup(", self.fighter_code)
+        self.assertIn("func receive_hit(", self.fighter_code)
+        self.assertIn("func change_state(", self.fighter_code)
+        self.assertIn("func reset_round(", self.fighter_code)
+        self.assertIn("func reset_fighter(", self.fighter_code)
+        self.assertIn("func toggle_dummy(", self.fighter_code)
+        self.assertIn("func update_facing(", self.fighter_code)
+        self.assertIn("func _apply_clamping(", self.fighter_code)
+
+    def test_damage_mitigation_formula(self):
+        # 80% mitigation via floor(damage * 0.2)
+        self.assertIn("floor(float(p_damage) * 0.2)", self.fighter_code)
+
+    def test_signals_declared(self):
+        self.assertIn("signal health_changed(", self.fighter_code)
+        self.assertIn("signal state_changed(", self.fighter_code)
+        self.assertIn("signal hit_received(", self.fighter_code)
+        self.assertIn("signal knocked_down", self.fighter_code)
+        self.assertIn("signal died", self.fighter_code)
+
+    def test_scene_node_structure(self):
+        self.assertIn('node name="Fighter" type="CharacterBody2D"', self.fighter_scene)
+        self.assertIn('node name="PushboxShape" type="CollisionShape2D"', self.fighter_scene)
+        self.assertIn('node name="Hurtbox" type="Area2D"', self.fighter_scene)
+        self.assertIn('node name="Hitbox" type="Area2D"', self.fighter_scene)
+        self.assertIn('node name="Visual" type="Node2D"', self.fighter_scene)
+        self.assertIn('collision_layer = 2', self.fighter_scene)
+        self.assertIn('collision_mask = 7', self.fighter_scene)
+
+    def test_dummy_mode_defaults_and_toggle(self):
+        self.assertIn("var is_dummy: bool = false", self.fighter_code)
+        self.assertIn("is_dummy = not is_dummy", self.fighter_code)
+        # AC-10 specifies toggle action toggle_p2_dummy
+        self.assertIn('event.is_action_pressed("toggle_p2_dummy")', self.fighter_code)
+
+
+if __name__ == "__main__":
+    unittest.main()
