@@ -28,7 +28,7 @@ const FLOOR_Y: float = 190.0
 @export var round_over_duration: float = ROUND_OVER_DURATION
 @export var initial_round_time: int = INITIAL_ROUND_TIME
 
-var match_state: MatchState = MatchState.ROUND_INTRO
+var match_state: MatchState = MatchState.RESET
 var round_timer: float = float(INITIAL_ROUND_TIME)
 var state_timer: float = 0.0
 var last_winner_id: int = 0
@@ -115,11 +115,11 @@ func start_round() -> void:
 		elif hud.has_method("update_timer"):
 			hud.update_timer(initial_round_time)
 
-	change_match_state(MatchState.ROUND_INTRO)
+	change_match_state(MatchState.ROUND_INTRO, true)
 
 ## Transitions match FSM to new_state and applies entry logic.
-func change_match_state(new_state: MatchState) -> void:
-	if match_state == new_state and state_timer == 0.0:
+func change_match_state(new_state: MatchState, force: bool = false) -> void:
+	if not force and match_state == new_state:
 		return
 	var old_state = match_state
 	match_state = new_state
@@ -234,8 +234,14 @@ func _perform_reset() -> void:
 func _set_inputs_frozen(frozen: bool) -> void:
 	if is_instance_valid(p1):
 		p1.inputs_frozen = frozen
+		if frozen and (p1.state == FighterScript.State.WALK_FORWARD or p1.state == FighterScript.State.WALK_BACKWARD):
+			p1.change_state(FighterScript.State.IDLE)
+			p1.velocity.x = 0.0
 	if is_instance_valid(p2):
 		p2.inputs_frozen = frozen
+		if frozen and (p2.state == FighterScript.State.WALK_FORWARD or p2.state == FighterScript.State.WALK_BACKWARD):
+			p2.change_state(FighterScript.State.IDLE)
+			p2.velocity.x = 0.0
 
 func _on_p1_health_changed(new_health: int, max_health: int) -> void:
 	if is_instance_valid(hud):

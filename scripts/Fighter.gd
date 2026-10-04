@@ -254,7 +254,7 @@ func _process_walk_forward(_delta: float) -> void:
 	var input_dir: float = _get_horizontal_input()
 	if (input_dir > 0 and facing == -1) or (input_dir < 0 and facing == 1):
 		change_state(State.WALK_BACKWARD)
-	elif input_dir == 0.0 or is_action_just_released("left") or is_action_just_released("right"):
+	elif is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
 	else:
 		velocity.x = float(facing) * WALK_FORWARD_SPEED
@@ -279,7 +279,7 @@ func _process_walk_backward(_delta: float) -> void:
 	var input_dir: float = _get_horizontal_input()
 	if (input_dir > 0 and facing == 1) or (input_dir < 0 and facing == -1):
 		change_state(State.WALK_FORWARD)
-	elif input_dir == 0.0 or is_action_just_released("left") or is_action_just_released("right"):
+	elif is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
 	else:
 		velocity.x = -float(facing) * WALK_BACKWARD_SPEED

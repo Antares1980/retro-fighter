@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Fixed `scripts/Fighter.gd` walk velocity test failures by restoring input action release checks for forward and backward walking, avoiding premature IDLE transitions when input axes are neutral.
+- Fixed `scripts/Main.gd` match FSM initialization so `ROUND_INTRO` entry logic (freezing inputs, displaying `FIGHT!` announcer banner) triggers deterministically upon `_ready()` and round reset.
 - Fixed headless Godot engine script parse error in `scripts/Main.gd` where `Fighter` type annotation failed during headless execution without pre-cached global script registry.
 - Improved headless runner node initialization in `scripts/Main.gd` to ensure robust node resolution (`$P1`, `$P2`, `$HUD`) and lifecycle handling when executed outside an active SceneTree.
 - Added headless editor import pass step (`godot --headless --editor --quit`) in CI workflow `.github/workflows/ci.yml`.
