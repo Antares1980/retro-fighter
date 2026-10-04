@@ -1,0 +1,609 @@
+class_name TestFighter
+extends RefCounted
+
+const FighterScene = preload("res://scenes/Fighter.tscn")
+const FighterScript = preload("res://scripts/Fighter.gd")
+const HitboxScript = preload("res://scripts/Hitbox.gd")
+const HurtboxScript = preload("res://scripts/Hurtbox.gd")
+
+var passed: int = 0
+var failed: int = 0
+
+func assert_true(condition: bool, message: String) -> void:
+	if condition:
+		passed += 1
+		print("  [PASS] %s" % message)
+	else:
+		failed += 1
+		printerr("  [FAIL] %s" % message)
+
+func assert_false(condition: bool, message: String) -> void:
+	assert_true(not condition, message)
+
+func assert_equal(actual, expected, message: String) -> void:
+	if actual == expected:
+		passed += 1
+		print("  [PASS] %s (got expected: %s)" % [message, str(expected)])
+	else:
+		failed += 1
+		printerr("  [FAIL] %s (expected: %s, got: %s)" % [message, str(expected), str(actual)])
+
+func run_all() -> bool:
+	print("\n=== Running Retro Fighter FSM & Combat Mechanics Tests ===")
+	test_scene_structure_and_nodes()
+	test_13_states_definition()
+	test_setup_player_parameterization()
+	test_auto_facing()
+	test_movement_and_walking_speeds()
+	test_jump_squat_and_jumping()
+	test_crouching_hurtbox_reduction()
+	test_attack_punch_frame_data()
+	test_attack_kick_frame_data()
+	test_attack_initiation_rules()
+	test_ac01_punch_hit_and_oneshot()
+	test_ac02_standing_block_vs_punch()
+	test_ac03_low_kick_vs_standing_block()
+	test_ac04_crouching_block_vs_low_kick()
+	test_crouching_block_vs_punch()
+	test_ac05_pushbox_separation_matrix()
+	test_ac06_boundary_clamping()
+	test_ac07_ko_knockdown_dead_and_reset()
+	test_ac10_p2_dummy_toggle_and_behavior()
+
+	print("\n=== Test Results: %d passed, %d failed ===" % [passed, failed])
+	return failed == 0
+
+func test_scene_structure_and_nodes() -> void:
+	print("\nScenario: Scene Hierarchy and Node Integrity")
+	var fighter = FighterScene.instantiate()
+	assert_true(fighter != null, "Fighter scene instantiates successfully")
+	assert_true(fighter is CharacterBody2D, "Fighter root is CharacterBody2D")
+	assert_true(fighter.get_script() == FighterScript, "Fighter has Fighter.gd script attached")
+
+	# Pushbox
+	assert_equal(fighter.collision_layer, HitboxScript.MASK_FIGHTERBODY, "Fighter collision_layer is Layer 2 (FighterBody, 2)")
+	assert_equal(fighter.collision_mask, HitboxScript.MASK_WORLDFLOOR | HitboxScript.MASK_FIGHTERBODY | HitboxScript.MASK_STAGEWALL, "Fighter collision_mask is Layers 1, 2, 3 (7)")
+	
+	var pushbox = fighter.get_node_or_null("PushboxShape")
+	assert_true(pushbox != null, "PushboxShape CollisionShape2D exists")
+	assert_equal(pushbox.position, Vector2(0.0, -27.0), "Pushbox position is (0, -27)")
+	assert_true(pushbox.shape is RectangleShape2D, "Pushbox shape is RectangleShape2D")
+	assert_equal((pushbox.shape as RectangleShape2D).size, Vector2(24.0, 54.0), "Pushbox size is 24x54 px")
+
+	# Hurtbox
+	var hurtbox = fighter.get_node_or_null("Hurtbox")
+	assert_true(hurtbox != null, "Hurtbox node exists")
+	assert_true(hurtbox is HurtboxScript, "Hurtbox node is Hurtbox class")
+	var hurtbox_col = hurtbox.get_node_or_null("CollisionShape2D")
+	assert_true(hurtbox_col != null, "Hurtbox CollisionShape2D exists")
+	assert_equal(hurtbox_col.position, Vector2(0.0, -27.0), "Standing hurtbox offset is (0, -27)")
+	assert_equal((hurtbox_col.shape as RectangleShape2D).size, Vector2(24.0, 54.0), "Standing hurtbox size is 24x54")
+
+	# Hitbox
+	var hitbox = fighter.get_node_or_null("Hitbox")
+	assert_true(hitbox != null, "Hitbox node exists")
+	assert_true(hitbox is HitboxScript, "Hitbox node is Hitbox class")
+	assert_false(hitbox.monitoring, "Hitbox monitoring is false initially")
+
+	# Visual
+	var visual = fighter.get_node_or_null("Visual")
+	assert_true(visual != null, "Visual Node2D exists")
+	var body = fighter.get_node_or_null("Visual/Body")
+	assert_true(body != null, "Visual/Body ColorRect exists")
+
+	fighter.free()
+
+func test_13_states_definition() -> void:
+	print("\nScenario: 13-State Deterministic FSM Definitions")
+	assert_equal(FighterScript.State.IDLE, 0, "State.IDLE is 0")
+	assert_equal(FighterScript.State.WALK_FORWARD, 1, "State.WALK_FORWARD is 1")
+	assert_equal(FighterScript.State.WALK_BACKWARD, 2, "State.WALK_BACKWARD is 2")
+	assert_equal(FighterScript.State.JUMP_SQUAT, 3, "State.JUMP_SQUAT is 3")
+	assert_equal(FighterScript.State.JUMPING, 4, "State.JUMPING is 4")
+	assert_equal(FighterScript.State.CROUCHING, 5, "State.CROUCHING is 5")
+	assert_equal(FighterScript.State.ATTACK_PUNCH, 6, "State.ATTACK_PUNCH is 6")
+	assert_equal(FighterScript.State.ATTACK_KICK, 7, "State.ATTACK_KICK is 7")
+	assert_equal(FighterScript.State.BLOCKING, 8, "State.BLOCKING is 8")
+	assert_equal(FighterScript.State.BLOCK_STUN, 9, "State.BLOCK_STUN is 9")
+	assert_equal(FighterScript.State.HIT_STUN, 10, "State.HIT_STUN is 10")
+	assert_equal(FighterScript.State.KNOCKDOWN, 11, "State.KNOCKDOWN is 11")
+	assert_equal(FighterScript.State.DEAD, 12, "State.DEAD is 12")
+	assert_equal(FighterScript.State.size(), 13, "FSM has exactly 13 states")
+
+func test_setup_player_parameterization() -> void:
+	print("\nScenario: Fighter setup(player_id) Parameterization")
+	var f1 = FighterScene.instantiate()
+	f1.setup(1)
+	assert_equal(f1.player_id, 1, "P1 player_id is 1")
+	assert_equal(f1.facing, 1, "P1 initial facing is 1 (right)")
+	assert_equal(f1.hurtbox.collision_layer, HitboxScript.MASK_P1_HURTBOX, "P1 Hurtbox layer is Layer 4 (8)")
+	assert_equal(f1.hitbox.collision_layer, HitboxScript.MASK_P1_HITBOX, "P1 Hitbox layer is Layer 5 (16)")
+	assert_equal(f1.hitbox.collision_mask, HitboxScript.MASK_P2_HURTBOX, "P1 Hitbox mask is Layer 6 (32)")
+	assert_equal(f1.health, 100, "P1 initial health is 100")
+	assert_equal(f1.state, FighterScript.State.IDLE, "P1 initial state is IDLE")
+	assert_equal(f1.body_rect.color, FighterScript.GI_COLOR_P1, "P1 gi color is blue")
+	f1.free()
+
+	var f2 = FighterScene.instantiate()
+	f2.setup(2)
+	assert_equal(f2.player_id, 2, "P2 player_id is 2")
+	assert_equal(f2.facing, -1, "P2 initial facing is -1 (left)")
+	assert_equal(f2.hurtbox.collision_layer, HitboxScript.MASK_P2_HURTBOX, "P2 Hurtbox layer is Layer 6 (32)")
+	assert_equal(f2.hitbox.collision_layer, HitboxScript.MASK_P2_HITBOX, "P2 Hitbox layer is Layer 7 (64)")
+	assert_equal(f2.hitbox.collision_mask, HitboxScript.MASK_P1_HURTBOX, "P2 Hitbox mask is Layer 4 (8)")
+	assert_equal(f2.body_rect.color, FighterScript.GI_COLOR_P2, "P2 gi color is red")
+	f2.free()
+
+func test_auto_facing() -> void:
+	print("\nScenario: Automatic Facing Towards Opponent")
+	var f1 = FighterScene.instantiate()
+	var f2 = FighterScene.instantiate()
+	f1.setup(1)
+	f2.setup(2)
+	f1.opponent = f2
+	f2.opponent = f1
+
+	f1.global_position = Vector2(200.0, 190.0)
+	f2.global_position = Vector2(300.0, 190.0)
+
+	f1.update_facing()
+	f2.update_facing()
+	assert_equal(f1.facing, 1, "P1 faces right towards P2 at X=300")
+	assert_equal(f2.facing, -1, "P2 faces left towards P1 at X=200")
+
+	# Cross over
+	f1.global_position.x = 350.0
+	f1.update_facing()
+	f2.update_facing()
+	assert_equal(f1.facing, -1, "P1 now faces left towards P2 at X=300")
+	assert_equal(f2.facing, 1, "P2 now faces right towards P1 at X=350")
+
+	f1.free()
+	f2.free()
+
+func test_movement_and_walking_speeds() -> void:
+	print("\nScenario: Walking Movement Speeds (100 px/s forward, 80 px/s backward)")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+	f.facing = 1
+
+	f.change_state(FighterScript.State.WALK_FORWARD)
+	f._process_walk_forward(1.0 / 60.0)
+	assert_equal(f.velocity.x, 100.0, "Facing right: WALK_FORWARD velocity is +100 px/s")
+
+	f.change_state(FighterScript.State.WALK_BACKWARD)
+	f._process_walk_backward(1.0 / 60.0)
+	assert_equal(f.velocity.x, -80.0, "Facing right: WALK_BACKWARD velocity is -80 px/s")
+
+	# Facing left
+	f.facing = -1
+	f.change_state(FighterScript.State.WALK_FORWARD)
+	f._process_walk_forward(1.0 / 60.0)
+	assert_equal(f.velocity.x, -100.0, "Facing left: WALK_FORWARD velocity is -100 px/s")
+
+	f.change_state(FighterScript.State.WALK_BACKWARD)
+	f._process_walk_backward(1.0 / 60.0)
+	assert_equal(f.velocity.x, 80.0, "Facing left: WALK_BACKWARD velocity is +80 px/s")
+
+	f.free()
+
+func test_jump_squat_and_jumping() -> void:
+	print("\nScenario: Jump Squat (3 ticks) and Jumping Physics")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	f.change_state(FighterScript.State.JUMP_SQUAT)
+	assert_equal(f.state, FighterScript.State.JUMP_SQUAT, "State is JUMP_SQUAT")
+	assert_equal(f.velocity, Vector2.ZERO, "Velocity is 0 during jump squat")
+
+	# 1st tick
+	f._process_jump_squat(1.0 / 60.0)
+	assert_equal(f.state, FighterScript.State.JUMP_SQUAT, "Still in JUMP_SQUAT on tick 1")
+
+	# 2nd tick
+	f._process_jump_squat(1.0 / 60.0)
+	assert_equal(f.state, FighterScript.State.JUMP_SQUAT, "Still in JUMP_SQUAT on tick 2")
+
+	# 3rd tick -> transition to JUMPING
+	f._process_jump_squat(1.0 / 60.0)
+	assert_equal(f.state, FighterScript.State.JUMPING, "Transitions to JUMPING after 3 ticks")
+	assert_equal(f.velocity.y, -420.0, "Initial jump velocity is -420 px/s")
+
+	# Gravity application
+	var delta: float = 1.0 / 60.0
+	f._process_jumping(delta)
+	var expected_vy: float = -420.0 + 980.0 * delta
+	assert_true(abs(f.velocity.y - expected_vy) < 0.001, "Gravity 980 px/s^2 correctly applied")
+
+	f.free()
+
+func test_crouching_hurtbox_reduction() -> void:
+	print("\nScenario: Crouching Hurtbox Reduction (32 px height)")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	var hurt_shape: CollisionShape2D = f.hurtbox.get_collision_shape()
+	assert_equal((hurt_shape.shape as RectangleShape2D).size, Vector2(24.0, 54.0), "Standing hurtbox height is 54 px")
+
+	f.change_state(FighterScript.State.CROUCHING)
+	assert_equal((hurt_shape.shape as RectangleShape2D).size, Vector2(24.0, 32.0), "Crouching hurtbox height reduced to 32 px")
+	assert_equal(hurt_shape.position, Vector2(0.0, -16.0), "Crouching hurtbox offset is (0, -16)")
+
+	f.change_state(FighterScript.State.IDLE)
+	assert_equal((hurt_shape.shape as RectangleShape2D).size, Vector2(24.0, 54.0), "Restored standing hurtbox height is 54 px")
+	assert_equal(hurt_shape.position, Vector2(0.0, -27.0), "Restored standing hurtbox offset is (0, -27)")
+
+	f.free()
+
+func test_attack_punch_frame_data() -> void:
+	print("\nScenario: Punch Attack Frame Data (4 startup, 3 active, 5 recovery = 12 total)")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	f.change_state(FighterScript.State.ATTACK_PUNCH)
+	assert_equal(f.state, FighterScript.State.ATTACK_PUNCH, "State is ATTACK_PUNCH")
+	assert_false(f.hitbox.monitoring, "Hitbox inactive during startup")
+
+	# Startup frames: ticks 1 to 4
+	for tick in range(1, 5):
+		f._process_attack_punch(1.0 / 60.0)
+		assert_equal(f.attack_tick, tick, "Punch tick %d" % tick)
+		assert_false(f.hitbox.monitoring, "Hitbox inactive on startup tick %d" % tick)
+
+	# Active frame 1: tick 5 (AC-01)
+	f._process_attack_punch(1.0 / 60.0)
+	assert_equal(f.attack_tick, 5, "Punch tick 5 is first active tick")
+	assert_true(f.hitbox.monitoring, "Hitbox is active on tick 5")
+
+	# Active frame 2: tick 6
+	f._process_attack_punch(1.0 / 60.0)
+	assert_true(f.hitbox.monitoring, "Hitbox is active on tick 6")
+
+	# Active frame 3: tick 7
+	f._process_attack_punch(1.0 / 60.0)
+	assert_true(f.hitbox.monitoring, "Hitbox is active on tick 7")
+
+	# Recovery frame 1: tick 8 -> hitbox deactivated
+	f._process_attack_punch(1.0 / 60.0)
+	assert_equal(f.attack_tick, 8, "Punch tick 8 is first recovery tick")
+	assert_false(f.hitbox.monitoring, "Hitbox is deactivated on recovery tick 8")
+
+	# Recovery frames: ticks 9 to 12
+	for tick in range(9, 13):
+		f._process_attack_punch(1.0 / 60.0)
+		assert_false(f.hitbox.monitoring, "Hitbox is deactivated on recovery tick %d" % tick)
+
+	# Tick 13 -> transitions back to IDLE
+	f._process_attack_punch(1.0 / 60.0)
+	assert_equal(f.state, FighterScript.State.IDLE, "Returns to IDLE after 12 ticks")
+
+	f.free()
+
+func test_attack_kick_frame_data() -> void:
+	print("\nScenario: Kick Attack Frame Data (7 startup, 4 active, 8 recovery = 19 total)")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	f.change_state(FighterScript.State.ATTACK_KICK)
+	assert_equal(f.state, FighterScript.State.ATTACK_KICK, "State is ATTACK_KICK")
+
+	# Startup frames: ticks 1 to 7
+	for tick in range(1, 8):
+		f._process_attack_kick(1.0 / 60.0)
+		assert_false(f.hitbox.monitoring, "Kick hitbox inactive on startup tick %d" % tick)
+
+	# Active frame 1: tick 8
+	f._process_attack_kick(1.0 / 60.0)
+	assert_equal(f.attack_tick, 8, "Kick tick 8 is first active tick")
+	assert_true(f.hitbox.monitoring, "Kick hitbox is active on tick 8")
+
+	# Active frames: ticks 9, 10, 11
+	for tick in range(9, 12):
+		f._process_attack_kick(1.0 / 60.0)
+		assert_true(f.hitbox.monitoring, "Kick hitbox is active on active tick %d" % tick)
+
+	# Recovery frame 1: tick 12
+	f._process_attack_kick(1.0 / 60.0)
+	assert_equal(f.attack_tick, 12, "Kick tick 12 is first recovery tick")
+	assert_false(f.hitbox.monitoring, "Kick hitbox deactivated on recovery tick 12")
+
+	# Recovery frames: ticks 13 to 19
+	for tick in range(13, 20):
+		f._process_attack_kick(1.0 / 60.0)
+		assert_false(f.hitbox.monitoring, "Kick hitbox inactive on recovery tick %d" % tick)
+
+	# Tick 20 -> transitions back to IDLE
+	f._process_attack_kick(1.0 / 60.0)
+	assert_equal(f.state, FighterScript.State.IDLE, "Returns to IDLE after 19 ticks")
+
+	f.free()
+
+func test_attack_initiation_rules() -> void:
+	print("\nScenario: Attack Initiation Rule Enforcement")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	# Allowed from IDLE
+	f.state = FighterScript.State.IDLE
+	assert_true(f.state in [FighterScript.State.IDLE, FighterScript.State.WALK_FORWARD, FighterScript.State.WALK_BACKWARD], "IDLE is valid attack origin")
+
+	# Allowed from WALK_FORWARD
+	f.state = FighterScript.State.WALK_FORWARD
+	assert_true(f.state in [FighterScript.State.IDLE, FighterScript.State.WALK_FORWARD, FighterScript.State.WALK_BACKWARD], "WALK_FORWARD is valid attack origin")
+
+	# Allowed from WALK_BACKWARD
+	f.state = FighterScript.State.WALK_BACKWARD
+	assert_true(f.state in [FighterScript.State.IDLE, FighterScript.State.WALK_FORWARD, FighterScript.State.WALK_BACKWARD], "WALK_BACKWARD is valid attack origin")
+
+	# Disallowed from CROUCHING
+	f.state = FighterScript.State.CROUCHING
+	assert_false(f.state in [FighterScript.State.IDLE, FighterScript.State.WALK_FORWARD, FighterScript.State.WALK_BACKWARD], "No crouch attacks allowed")
+
+	# Disallowed from JUMPING
+	f.state = FighterScript.State.JUMPING
+	assert_false(f.state in [FighterScript.State.IDLE, FighterScript.State.WALK_FORWARD, FighterScript.State.WALK_BACKWARD], "No air attacks allowed")
+
+	f.free()
+
+func test_ac01_punch_hit_and_oneshot() -> void:
+	print("\nScenario: AC-01 - Punch Hit & One-Shot Registration")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+	p1.opponent = p2
+	p2.opponent = p1
+
+	p1.global_position = Vector2(200.0, 190.0)
+	p2.global_position = Vector2(240.0, 190.0) # 40 px distance
+
+	p1.change_state(FighterScript.State.ATTACK_PUNCH)
+	assert_equal(p2.health, 100, "P2 initial health is 100")
+
+	# Advance 4 startup ticks
+	for _i in range(4):
+		p1._process_attack_punch(1.0 / 60.0)
+	assert_equal(p2.health, 100, "P2 health untouched during startup ticks")
+
+	# Tick 5: Hit lands!
+	p1._process_attack_punch(1.0 / 60.0)
+	# Trigger hit delivery
+	var landed = p1.hitbox.trigger_hit(p2.hurtbox)
+	assert_true(landed, "Hit delivered to P2 hurtbox on tick 5")
+	assert_equal(p2.health, 92, "P2 health decreases by 8 (from 100 to 92)")
+	assert_equal(p2.state, FighterScript.State.HIT_STUN, "P2 enters HIT_STUN")
+	assert_equal(p2.stun_ticks_remaining, 12, "P2 hit stun ticks is 12")
+
+	# One-shot check: Subsequent ticks during same active window must NOT apply damage again
+	var second_hit = p1.hitbox.trigger_hit(p2.hurtbox)
+	assert_false(second_hit, "Damage is NOT applied again during same swing (one-shot registration)")
+	assert_equal(p2.health, 92, "P2 health remains 92")
+
+	p1.free()
+	p2.free()
+
+func test_ac02_standing_block_vs_punch() -> void:
+	print("\nScenario: AC-02 - Standing Block vs High Punch")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+	p1.opponent = p2
+	p2.opponent = p1
+
+	p1.global_position = Vector2(200.0, 190.0)
+	p2.global_position = Vector2(240.0, 190.0)
+
+	# P2 holding standing block
+	p2.change_state(FighterScript.State.BLOCKING)
+	p2.is_crouch_blocking = false
+
+	# P1 lands punch
+	p1.hitbox.configure_punch(1, p1)
+	var landed = p1.hitbox.trigger_hit(p2.hurtbox)
+	assert_true(landed, "Punch hit lands on standing blocking P2")
+
+	assert_equal(p2.state, FighterScript.State.BLOCK_STUN, "P2 enters BLOCK_STUN")
+	assert_equal(p2.stun_ticks_remaining, 6, "P2 block stun is 6 ticks")
+	assert_equal(p2.health, 99, "P2 takes only 1 HP damage (floor(8 * 0.2))")
+	assert_equal(p2.velocity.x, 0.0, "Knockback is 0 on block")
+
+	p1.free()
+	p2.free()
+
+func test_ac03_low_kick_vs_standing_block() -> void:
+	print("\nScenario: AC-03 - Low Kick Hit vs Standing Block (Defense Failure)")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+	p1.opponent = p2
+	p2.opponent = p1
+
+	p1.global_position = Vector2(200.0, 190.0)
+	p2.global_position = Vector2(250.0, 190.0) # 50 px distance
+
+	# P2 holding standing block
+	p2.change_state(FighterScript.State.BLOCKING)
+	p2.is_crouch_blocking = false
+
+	# P1 lands low kick
+	p1.hitbox.configure_kick(1, p1)
+	var landed = p1.hitbox.trigger_hit(p2.hurtbox)
+	assert_true(landed, "Kick hit lands on standing P2")
+
+	assert_equal(p2.state, FighterScript.State.HIT_STUN, "Standing block fails vs low kick -> enters HIT_STUN")
+	assert_equal(p2.health, 86, "P2 takes full 14 HP damage (from 100 to 86)")
+	assert_equal(p2.stun_ticks_remaining, 18, "P2 hit stun is 18 ticks")
+	assert_equal(p2.velocity.x, 80.0, "P2 pushed back by 80 px/s")
+
+	p1.free()
+	p2.free()
+
+func test_ac04_crouching_block_vs_low_kick() -> void:
+	print("\nScenario: AC-04 - Crouching Block vs Low Kick (Successful Defense)")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+	p1.opponent = p2
+	p2.opponent = p1
+
+	p1.global_position = Vector2(200.0, 190.0)
+	p2.global_position = Vector2(250.0, 190.0)
+
+	# P2 crouch blocking
+	p2.change_state(FighterScript.State.BLOCKING)
+	p2.is_crouch_blocking = true
+
+	# P1 lands low kick
+	p1.hitbox.configure_kick(1, p1)
+	var landed = p1.hitbox.trigger_hit(p2.hurtbox)
+	assert_true(landed, "Kick hit lands on crouch-blocking P2")
+
+	assert_equal(p2.state, FighterScript.State.BLOCK_STUN, "Crouch block succeeds vs low kick -> enters BLOCK_STUN")
+	assert_equal(p2.health, 98, "P2 takes only 2 HP damage (floor(14 * 0.2))")
+	assert_equal(p2.stun_ticks_remaining, 8, "P2 block stun is 8 ticks")
+	assert_equal(p2.velocity.x, 0.0, "Knockback is 0 on block")
+
+	p1.free()
+	p2.free()
+
+func test_crouching_block_vs_punch() -> void:
+	print("\nScenario: Crouching Block vs High Punch (High can be blocked crouching)")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+	p1.opponent = p2
+	p2.opponent = p1
+
+	p2.change_state(FighterScript.State.BLOCKING)
+	p2.is_crouch_blocking = true
+
+	p1.hitbox.configure_punch(1, p1)
+	p1.hitbox.trigger_hit(p2.hurtbox)
+
+	assert_equal(p2.state, FighterScript.State.BLOCK_STUN, "Crouch block succeeds vs punch")
+	assert_equal(p2.health, 99, "P2 takes 1 HP damage")
+	assert_equal(p2.stun_ticks_remaining, 6, "P2 block stun is 6 ticks")
+
+	p1.free()
+	p2.free()
+
+func test_ac05_pushbox_separation_matrix() -> void:
+	print("\nScenario: AC-05 - Pushbox Collision Separation Matrix")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+
+	assert_true(bool(p1.collision_layer & HitboxScript.MASK_FIGHTERBODY), "P1 has Layer 2 pushbox")
+	assert_true(bool(p2.collision_layer & HitboxScript.MASK_FIGHTERBODY), "P2 has Layer 2 pushbox")
+	assert_true(bool(p1.collision_mask & HitboxScript.MASK_FIGHTERBODY), "P1 masks Layer 2 pushbox (prevents pass-through)")
+	assert_true(bool(p2.collision_mask & HitboxScript.MASK_FIGHTERBODY), "P2 masks Layer 2 pushbox (prevents pass-through)")
+
+	p1.free()
+	p2.free()
+
+# Mock Camera class to test view bounds clamping
+class MockCamera extends Camera2D:
+	var left_bound: float = 192.0
+	var right_bound: float = 408.0
+
+	func get_view_bounds() -> Rect2:
+		return Rect2(left_bound, 0.0, 384.0, 224.0)
+
+func test_ac06_boundary_clamping() -> void:
+	print("\nScenario: AC-06 - Viewport & Stage Boundary Clamping")
+	var f = FighterScene.instantiate()
+	f.setup(1)
+
+	# Test stage bounds [16, 584] without camera
+	f.global_position.x = 0.0
+	f._apply_clamping()
+	assert_equal(f.global_position.x, 16.0, "Clamped to stage min X (16)")
+
+	f.global_position.x = 700.0
+	f._apply_clamping()
+	assert_equal(f.global_position.x, 584.0, "Clamped to stage max X (584)")
+
+	# Test with camera bounds
+	var mock_cam = MockCamera.new()
+	mock_cam.left_bound = 100.0 # view [100, 484] -> clamp [100+16, 484-16] = [116, 468]
+	f.camera = mock_cam
+
+	f.global_position.x = 50.0
+	f._apply_clamping()
+	assert_equal(f.global_position.x, 116.0, "Clamped to camera left bound + 16 (116)")
+
+	f.global_position.x = 500.0
+	f._apply_clamping()
+	assert_equal(f.global_position.x, 468.0, "Clamped to camera right bound - 16 (468)")
+
+	mock_cam.free()
+	f.free()
+
+func test_ac07_ko_knockdown_dead_and_reset() -> void:
+	print("\nScenario: AC-07 - KO, Knockdown to Dead, and Round Reset")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+
+	p2.health = 8
+	p1.hitbox.configure_punch(1, p1)
+	p1.hitbox.trigger_hit(p2.hurtbox)
+
+	assert_equal(p2.health, 0, "P2 health drops to 0")
+	assert_equal(p2.state, FighterScript.State.KNOCKDOWN, "P2 enters KNOCKDOWN upon 0 HP")
+
+	# Knockdown advances to DEAD
+	for _i in range(10):
+		p2._process_knockdown(1.0 / 60.0)
+	assert_equal(p2.state, FighterScript.State.DEAD, "P2 enters DEAD terminal state")
+
+	# Round Reset
+	p2.reset_round(400.0)
+	assert_equal(p2.health, 100, "Health restored to 100 on reset")
+	assert_equal(p2.state, FighterScript.State.IDLE, "State forced back to IDLE on reset")
+	assert_equal(p2.global_position.x, 400.0, "Position restored to X=400")
+
+	p1.free()
+	p2.free()
+
+func test_ac10_p2_dummy_toggle_and_behavior() -> void:
+	print("\nScenario: AC-10 - Player 2 Dummy Toggle & Behavior")
+	var p1 = FighterScene.instantiate()
+	var p2 = FighterScene.instantiate()
+	p1.setup(1)
+	p2.setup(2)
+
+	assert_false(p2.is_dummy, "P2 default is HUMAN mode (is_dummy = false)")
+
+	# Toggle to dummy
+	p2.toggle_dummy()
+	assert_true(p2.is_dummy, "P2 toggles to DUMMY mode")
+
+	# In dummy mode, input actions are ignored
+	assert_false(p2.is_action_pressed("punch"), "P2 dummy ignores input action punch")
+	assert_false(p2.is_action_pressed("block"), "P2 dummy ignores input action block")
+
+	# Auto crouch-blocks incoming punch
+	p1.hitbox.configure_punch(1, p1)
+	p1.hitbox.trigger_hit(p2.hurtbox)
+
+	assert_equal(p2.state, FighterScript.State.BLOCK_STUN, "P2 dummy automatically enters BLOCK_STUN")
+	assert_equal(p2.stun_ticks_remaining, 6, "P2 dummy block stun is 6 ticks")
+	assert_equal(p2.health, 99, "P2 dummy loses only 1 HP against punch")
+
+	# Persists across reset_round
+	p2.reset_round(400.0)
+	assert_true(p2.is_dummy, "P2 dummy mode persists across round reset")
+
+	# Toggle back to human
+	p2.toggle_dummy()
+	assert_false(p2.is_dummy, "Pressing toggle again restores HUMAN mode")
+
+	p1.free()
+	p2.free()
