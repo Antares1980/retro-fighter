@@ -72,6 +72,12 @@ var health: int = MAX_HEALTH
 var state: State = State.IDLE
 var facing: int = 1
 var is_dummy: bool = false
+var inputs_frozen: bool = false
+var inputs_enabled: bool:
+	get:
+		return not inputs_frozen
+	set(val):
+		inputs_frozen = not val
 var opponent: CharacterBody2D = null
 var camera: Camera2D = null
 
@@ -248,7 +254,7 @@ func _process_walk_forward(_delta: float) -> void:
 	var input_dir: float = _get_horizontal_input()
 	if (input_dir > 0 and facing == -1) or (input_dir < 0 and facing == 1):
 		change_state(State.WALK_BACKWARD)
-	elif is_action_just_released("left") or is_action_just_released("right"):
+	elif input_dir == 0.0 or is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
 	else:
 		velocity.x = float(facing) * WALK_FORWARD_SPEED
@@ -273,7 +279,7 @@ func _process_walk_backward(_delta: float) -> void:
 	var input_dir: float = _get_horizontal_input()
 	if (input_dir > 0 and facing == 1) or (input_dir < 0 and facing == -1):
 		change_state(State.WALK_FORWARD)
-	elif is_action_just_released("left") or is_action_just_released("right"):
+	elif input_dir == 0.0 or is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
 	else:
 		velocity.x = -float(facing) * WALK_BACKWARD_SPEED
@@ -599,6 +605,7 @@ func reset_fighter(start_x: float = 0.0) -> void:
 		facing = -1
 	set_facing(facing)
 
+	inputs_frozen = false
 	change_state(State.IDLE)
 	# NOTE: is_dummy persists across round reset per AC-10
 
@@ -646,16 +653,22 @@ func get_action_name(action: String) -> String:
 	return "p%d_%s" % [player_id, action]
 
 func is_action_pressed(action: String) -> bool:
+	if inputs_frozen:
+		return false
 	if is_dummy and player_id == 2:
 		return false
 	return Input.is_action_pressed(get_action_name(action))
 
 func is_action_just_pressed(action: String) -> bool:
+	if inputs_frozen:
+		return false
 	if is_dummy and player_id == 2:
 		return false
 	return Input.is_action_just_pressed(get_action_name(action))
 
 func is_action_just_released(action: String) -> bool:
+	if inputs_frozen:
+		return false
 	if is_dummy and player_id == 2:
 		return false
 	return Input.is_action_just_released(get_action_name(action))

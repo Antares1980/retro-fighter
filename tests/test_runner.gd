@@ -13,7 +13,10 @@ func _init():
 	var test_camera = load("res://tests/test_camera.gd").new()
 	var success_camera: bool = test_camera.run_all()
 
-	if success_foundation and success_hitbox and success_fighter and success_camera:
+	var test_orchestrator = load("res://tests/test_stage_hud_orchestrator.gd").new()
+	var success_orchestrator: bool = test_orchestrator.run_all()
+
+	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator:
 		print("\n[ALL TESTS PASSED SUCCESSFULLY]")
 		quit(0)
 	else:

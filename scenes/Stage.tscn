@@ -1,0 +1,55 @@
+[gd_scene load_steps=5 format=3 uid="uid://stage_retroftr"]
+
+[sub_resource type="Gradient" id="Gradient_sunset"]
+offsets = PackedFloat32Array(0, 0.4, 0.75, 1)
+colors = PackedColorArray(0.12, 0.05, 0.22, 1, 0.42, 0.12, 0.35, 1, 0.88, 0.38, 0.15, 1, 0.98, 0.68, 0.25, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_sunset"]
+gradient = SubResource("Gradient_sunset")
+width = 600
+height = 224
+fill_from = Vector2(0.5, 0)
+fill_to = Vector2(0.5, 1)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ground"]
+size = Vector2(600, 34)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall"]
+size = Vector2(32, 224)
+
+[node name="Stage" type="Node2D"]
+
+[node name="SunsetBackdrop" type="TextureRect" parent="."]
+offset_right = 600.0
+offset_bottom = 224.0
+texture = SubResource("GradientTexture2D_sunset")
+
+[node name="Cityscape" type="Polygon2D" parent="."]
+color = Color(0.1, 0.08, 0.16, 1)
+polygon = PackedVector2Array(0, 190, 0, 130, 25, 130, 25, 110, 55, 110, 55, 145, 95, 145, 95, 85, 135, 85, 135, 135, 175, 135, 175, 65, 230, 65, 230, 115, 275, 115, 275, 95, 325, 95, 325, 140, 365, 140, 365, 75, 415, 75, 415, 125, 465, 125, 465, 90, 515, 90, 515, 135, 555, 135, 555, 110, 600, 110, 600, 190)
+
+[node name="FloorVisual" type="ColorRect" parent="."]
+offset_top = 190.0
+offset_right = 600.0
+offset_bottom = 224.0
+color = Color(0.18, 0.16, 0.22, 1)
+
+[node name="Ground" type="StaticBody2D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Ground"]
+position = Vector2(300, 207)
+shape = SubResource("RectangleShape2D_ground")
+
+[node name="StageWalls" type="StaticBody2D" parent="."]
+collision_layer = 4
+collision_mask = 0
+
+[node name="LeftWall" type="CollisionShape2D" parent="StageWalls"]
+position = Vector2(-16, 112)
+shape = SubResource("RectangleShape2D_wall")
+
+[node name="RightWall" type="CollisionShape2D" parent="StageWalls"]
+position = Vector2(616, 112)
+shape = SubResource("RectangleShape2D_wall")
