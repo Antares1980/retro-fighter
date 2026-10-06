@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented AIController Node, Main Orchestrator Integration & Test Suite (Issue #19):
+  - Created `scripts/AIController.gd` as a pure GDScript `Node`:
+    - Actionability guard: checks `fighter.state` against `HIT_STUN`, `BLOCK_STUN`, `KNOCKDOWN`, `DEAD`, `inputs_frozen`, and `is_dummy`, zeroing virtual inputs and returning early.
+    - Decision timer with `decision_interval = 0.35` s and `jitter_range = 0.05` s using an injectable `RandomNumberGenerator`.
+    - Authoritative distance-band decision table:
+      - FAR (> 85.0 px): Advance toward opponent (`input_dir = dir_to_opponent`).
+      - MID-RANGE (45.0 px to 85.0 px): Advance (`roll < 0.60`), Stand Idle (`0.60 <= roll < 0.90`, `input_dir = 0.0`), Step Back (`roll >= 0.90`, `input_dir = -dir_to_opponent`).
+      - CLOSE (< 45.0 px): Punch (`roll < 0.40`, 1-frame pulse), Kick (`0.40 <= roll < 0.70`, 1-frame pulse), Block (`0.70 <= roll < 0.90`, held `input_block = true`, `input_dir = 0.0`), Idle Hesitation (`roll >= 0.90`, `input_dir = 0.0`).
+    - Defensive fallback: when `sign(opponent.position.x - fighter.position.x) == 0.0`, falls back `dir_to_opponent` to `-float(fighter.facing)`.
+    - 1-frame attack pulse lifecycle: `input_punch` and `input_kick` automatically cleared on the immediate subsequent physics frame (`step` / `_physics_process`).
+    - Dedicated block: CPU block holds `input_block = true` with `input_dir = 0.0`.
+    - Lifecycle & reset: `reset()` zeroes virtual inputs and resets `decision_timer = decision_interval`.
+  - Updated `scripts/Main.gd`:
+    - In `_resolve_nodes()`: automatically instantiates `AIController.new()` if `p2.is_cpu` is enabled, attaches as child to `p2`, and calls `setup(p2, p1)`.
+    - In `start_round()` and `_perform_reset()`: invokes `ai_controller.reset()`.
+  - Updated `scenes/Main.tscn`: enabled `is_cpu = true` export toggle on Player 2.
+  - Created `tests/test_ai_controller.gd`: 77 deterministic seeded unit & integration tests covering AC-1 through AC-7, MID band splits, kick pulses, idle hesitation, co-located fallback, dummy overrides, and Main orchestrator integration.
+  - Created `tests/test_ai_controller.py`: structural and contract test suite for AIController properties, methods, timing, and Main scene wiring.
+  - Registered `tests/test_ai_controller.gd` into `tests/test_runner.gd` for 100% automated headless verification.
 - Implemented Virtual Input Seam & Hardware Decoupling in `scripts/Fighter.gd` (Issue #18):
   - Added `@export var is_cpu: bool = false` to toggle between hardware `Input` and virtual inputs.
   - Added virtual input properties: `input_dir: float = 0.0`, `input_punch: bool = false`, `input_kick: bool = false`, `input_block: bool = false`.
