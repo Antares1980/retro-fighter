@@ -132,6 +132,55 @@ class TestFighter(unittest.TestCase):
         self.assertIn("const PALETTES: Dictionary =", self.fighter_code)
         self.assertIn("func apply_palette(", self.fighter_code)
 
+    def test_animation_player_scene_structure(self):
+        self.assertIn('node name="AnimationPlayer" type="AnimationPlayer" parent="."', self.fighter_scene)
+        self.assertIn('callback_mode_process = 0', self.fighter_scene)
+
+    def test_animation_player_member_and_invariants(self):
+        self.assertIn('animation_player: AnimationPlayer = $AnimationPlayer', self.fighter_code)
+        self.assertIn('const LIMB_NODES: Array[String] =', self.fighter_code)
+        self.assertIn('const STATE_ANIMATIONS: Dictionary =', self.fighter_code)
+        self.assertIn('func _apply_neutral_reset()', self.fighter_code)
+        self.assertIn('func _reset_limb_transforms()', self.fighter_code)
+        self.assertIn('func _play_animation(', self.fighter_code)
+        self.assertIn('static func create_animation_library()', self.fighter_code)
+
+    def test_all_13_states_mapped_to_animations(self):
+        expected_mappings = [
+            ("State.IDLE", '"idle"'),
+            ("State.WALK_FORWARD", '"walk"'),
+            ("State.WALK_BACKWARD", '"walk_backward"'),
+            ("State.JUMP_SQUAT", '"jump_squat"'),
+            ("State.JUMPING", '"jump"'),
+            ("State.CROUCHING", '"crouch"'),
+            ("State.ATTACK_PUNCH", '"punch"'),
+            ("State.ATTACK_KICK", '"kick"'),
+            ("State.BLOCKING", '"block"'),
+            ("State.BLOCK_STUN", '"block_stun"'),
+            ("State.HIT_STUN", '"hit"'),
+            ("State.KNOCKDOWN", '"knockdown"'),
+            ("State.DEAD", '"dead"'),
+        ]
+        for state_enum, anim_name in expected_mappings:
+            pattern = f"{state_enum}: {anim_name}"
+            self.assertIn(pattern, self.fighter_code, f"State mapping {pattern} must exist in STATE_ANIMATIONS")
+
+    def test_track_isolation_invariant_enforcement(self):
+        # Asserts must guard track creation to only allow LIMB_NODES
+        self.assertIn('assert(limb in LIMB_NODES', self.fighter_code)
+        self.assertIn('"Visual/%s:%s" % [limb, property]', self.fighter_code)
+        # Invariants: no animation calls may touch Visual scale.x or collision nodes directly
+        self.assertNotIn('"Visual:scale', self.fighter_code)
+        self.assertNotIn('"Visual:scale:x', self.fighter_code)
+        self.assertNotIn('"PushboxShape:', self.fighter_code)
+        self.assertNotIn('"Hurtbox:', self.fighter_code)
+        self.assertNotIn('"Hitbox:', self.fighter_code)
+
+    def test_headless_null_guards(self):
+        # All animation calls must be wrapped in null check
+        self.assertIn('if animation_player != null', self.fighter_code)
+
 
 if __name__ == "__main__":
     unittest.main()
+

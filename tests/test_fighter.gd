@@ -21,7 +21,17 @@ func assert_false(condition: bool, message: String) -> void:
 	assert_true(not condition, message)
 
 func assert_equal(actual, expected, message: String) -> void:
-	if actual == expected:
+	var matches: bool = false
+	if (typeof(actual) == TYPE_FLOAT or typeof(actual) == TYPE_INT) and (typeof(expected) == TYPE_FLOAT or typeof(expected) == TYPE_INT) and (typeof(actual) == TYPE_FLOAT or typeof(expected) == TYPE_FLOAT):
+		matches = is_equal_approx(float(actual), float(expected))
+	elif actual is Vector2 and expected is Vector2:
+		matches = (actual as Vector2).is_equal_approx(expected as Vector2)
+	elif actual is Color and expected is Color:
+		matches = (actual as Color).is_equal_approx(expected as Color)
+	else:
+		matches = (actual == expected)
+
+	if matches:
 		passed += 1
 		print("  [PASS] %s (got expected: %s)" % [message, str(expected)])
 	else:
@@ -50,6 +60,12 @@ func run_all() -> bool:
 	test_ac07_ko_knockdown_dead_and_reset()
 	test_ac10_p2_dummy_toggle_and_behavior()
 	test_ac1_palette_application_on_setup()
+	test_ac2_punch_animation_synchronization()
+	test_ac3_attack_interrupt_neutral_reset()
+	test_ac4_p2_mirrored_low_kick_invariant()
+	test_ac5_headless_execution_safety()
+	test_13_state_animations_and_track_isolation()
+	test_crouch_and_knockdown_visual_heights()
 
 	print("\n=== Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -117,6 +133,12 @@ func test_scene_structure_and_nodes() -> void:
 
 	assert_true(fighter.get_node_or_null("Visual/Body") == null, "Visual/Body ColorRect replaced")
 	assert_true(fighter.get_node_or_null("Visual/AttackVisual") == null, "Visual/AttackVisual ColorRect removed")
+
+	# AnimationPlayer
+	var anim_player = fighter.get_node_or_null("AnimationPlayer")
+	assert_true(anim_player != null, "AnimationPlayer node exists")
+	assert_true(anim_player is AnimationPlayer, "AnimationPlayer is class AnimationPlayer")
+	assert_equal(anim_player.callback_mode_process, AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS, "AnimationPlayer configured in Physics process mode")
 
 	fighter.free()
 
@@ -648,3 +670,147 @@ func test_ac1_palette_application_on_setup() -> void:
 	assert_equal(torso.color, Color("243356"), "Visual/TorsoGi.color equals Color('243356') (navy)")
 	assert_equal(headband.color, Color("e6a117"), "Visual/Headband.color equals Color('e6a117') (gold)")
 	f.free()
+
+func test_ac2_punch_animation_synchronization() -> void:
+	print("\nScenario: AC-2 - Punch Animation Synchronization")
+	var fighter = FighterScene.instantiate()
+	fighter.setup(1)
+	assert_true(fighter.animation_player != null, "AnimationPlayer node exists")
+	assert_equal(fighter.animation_player.callback_mode_process, AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS, "AnimationPlayer configured in Physics mode")
+
+	fighter.change_state(FighterScript.State.ATTACK_PUNCH)
+	assert_equal(fighter.animation_player.current_animation, "punch", "AnimationPlayer current_animation is 'punch'")
+
+	var punch_anim = fighter.animation_player.get_animation("punch")
+	assert_true(punch_anim != null, "Punch animation exists")
+	assert_equal(punch_anim.length, 12.0 / 60.0, "Punch clip length equals 12 ticks (0.2s)")
+
+	fighter.animation_player.seek(5.0 / 60.0, true)
+	var lead_arm = fighter.get_node_or_null("Visual/LeadArm") as Polygon2D
+	assert_true(lead_arm != null, "Visual/LeadArm exists")
+	assert_equal(lead_arm.position.x, 18.0, "LeadArm reaches full +18 px forward extension at active tick 5")
+
+	fighter.animation_player.seek(7.0 / 60.0, true)
+	assert_equal(lead_arm.position.x, 18.0, "LeadArm maintains +18 px forward extension at active tick 7")
+
+	fighter.free()
+
+func test_ac3_attack_interrupt_neutral_reset() -> void:
+	print("\nScenario: AC-3 - Attack Interrupt Neutral Reset")
+	var fighter = FighterScene.instantiate()
+	fighter.setup(1)
+
+	fighter.change_state(FighterScript.State.ATTACK_PUNCH)
+	fighter.animation_player.seek(5.0 / 60.0, true)
+	var lead_arm = fighter.get_node_or_null("Visual/LeadArm") as Polygon2D
+	assert_equal(lead_arm.position.x, 18.0, "LeadArm extended to +18 px during active attack ticks")
+
+	fighter.change_state(FighterScript.State.HIT_STUN)
+	assert_equal(fighter.animation_player.current_animation, "hit", "AnimationPlayer current_animation is 'hit'")
+	assert_equal(lead_arm.position, Vector2.ZERO, "LeadArm transform reset to neutral rest pose (0, 0)")
+
+	fighter.free()
+
+func test_ac4_p2_mirrored_low_kick_invariant() -> void:
+	print("\nScenario: AC-4 - P2 Mirrored Low Kick Invariant")
+	var p2 = FighterScene.instantiate()
+	p2.setup(2)
+	assert_equal(p2.facing, -1, "P2 facing is -1")
+	assert_equal(p2.visual.scale.x, -1.0, "P2 visual.scale.x is -1.0")
+
+	p2.change_state(FighterScript.State.ATTACK_KICK)
+	assert_equal(p2.animation_player.current_animation, "kick", "P2 current_animation is 'kick'")
+	var kick_anim = p2.animation_player.get_animation("kick")
+	assert_equal(kick_anim.length, 19.0 / 60.0, "Kick clip length is 19 ticks")
+
+	p2.animation_player.seek(8.0 / 60.0, true)
+	var lead_leg = p2.get_node_or_null("Visual/LeadLeg") as Polygon2D
+	assert_true(lead_leg != null, "Visual/LeadLeg exists")
+	assert_true(lead_leg.position.x > 0.0, "LeadLeg extends with positive local X")
+	assert_equal(p2.hitbox.get_collision_shape().position, Vector2(-24.0, -12.0), "Kick hitbox is at relative offset (-24, -12)")
+
+	p2.free()
+
+func test_ac5_headless_execution_safety() -> void:
+	print("\nScenario: AC-5 - Headless Execution Safety (without AnimationPlayer)")
+	var headless = FighterScript.new()
+	assert_true(headless.animation_player == null, "Headless fighter has null animation_player")
+
+	for st in FighterScript.State.values():
+		headless.change_state(st)
+		headless._physics_process(1.0 / 60.0)
+
+	headless.receive_hit(10, 12, 6, 40.0, false)
+	headless.reset_round(200.0)
+	headless.reset_fighter(200.0)
+	assert_equal(headless.state, FighterScript.State.IDLE, "Headless fighter safely executed all transitions")
+
+	headless.free()
+
+func test_13_state_animations_and_track_isolation() -> void:
+	print("\nScenario: 13-State Animation Mapping & Track Isolation Invariant")
+	var fighter = FighterScene.instantiate()
+	fighter.setup(1)
+	var ap = fighter.animation_player
+	assert_true(ap != null, "AnimationPlayer exists")
+
+	for state_val in FighterScript.STATE_ANIMATIONS:
+		var anim_name = FighterScript.STATE_ANIMATIONS[state_val]
+		assert_true(ap.has_animation(anim_name), "Animation '%s' exists for state %d" % [anim_name, state_val])
+
+	assert_true(ap.has_animation("RESET"), "RESET animation exists")
+	assert_true(ap.has_animation("fall"), "fall animation exists")
+	assert_true(ap.has_animation("crouch_block"), "crouch_block animation exists")
+	assert_true(ap.has_animation("crouch_block_stun"), "crouch_block_stun animation exists")
+
+	var lib = ap.get_animation_library("")
+	for anim_name in ap.get_animation_list():
+		var anim = lib.get_animation(anim_name)
+		for t in range(anim.get_track_count()):
+			var path = str(anim.track_get_path(t))
+			assert_true(path.begins_with("Visual/"), "Track path '%s' in '%s' must target under Visual/" % [path, anim_name])
+			assert_false(path.begins_with("Visual:"), "Track path '%s' in '%s' must not target Visual root" % [path, anim_name])
+			assert_false("Pushbox" in path or "Hurtbox" in path or "Hitbox" in path, "Track path '%s' in '%s' must not target collision nodes" % [path, anim_name])
+
+			var parts = path.split(":")
+			var node_subpath = parts[0].replace("Visual/", "")
+			assert_true(node_subpath in FighterScript.LIMB_NODES, "Limb '%s' in '%s' must be in LIMB_NODES" % [node_subpath, anim_name])
+
+	fighter.free()
+
+func _calculate_visual_height(visual: Node2D) -> float:
+	var min_y: float = INF
+	var max_y: float = -INF
+	for limb_name in FighterScript.LIMB_NODES:
+		var poly = visual.get_node_or_null(limb_name) as Polygon2D
+		if poly != null:
+			for v in poly.polygon:
+				var world_v = poly.transform * v
+				if world_v.y < min_y:
+					min_y = world_v.y
+				if world_v.y > max_y:
+					max_y = world_v.y
+	return max_y - min_y
+
+func test_crouch_and_knockdown_visual_heights() -> void:
+	print("\nScenario: Crouch (<=32px) and Knockdown/Dead (<=16px) Visual Heights")
+	var fighter = FighterScene.instantiate()
+	fighter.setup(1)
+
+	fighter.change_state(FighterScript.State.CROUCHING)
+	fighter.animation_player.seek(0.0, true)
+	var crouch_height = _calculate_visual_height(fighter.visual)
+	assert_true(crouch_height <= 32.0, "Crouch visual height is <=32 px (got: %f)" % crouch_height)
+
+	fighter.change_state(FighterScript.State.KNOCKDOWN)
+	fighter.animation_player.seek(0.0, true)
+	var kd_height = _calculate_visual_height(fighter.visual)
+	assert_true(kd_height <= 16.001, "Knockdown visual height is <=16 px (got: %f)" % kd_height)
+
+	fighter.change_state(FighterScript.State.DEAD)
+	fighter.animation_player.seek(0.0, true)
+	var dead_height = _calculate_visual_height(fighter.visual)
+	assert_true(dead_height <= 16.001, "Dead visual height is <=16 px (got: %f)" % dead_height)
+
+	fighter.free()
+

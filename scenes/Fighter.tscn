@@ -115,3 +115,6 @@ script = ExtResource("3_hitbox")
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox"]
 position = Vector2(20, -36)
 shape = SubResource("RectangleShape2D_hitbox")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+callback_mode_process = 0
