@@ -20,5 +20,6 @@ position = Vector2(200, 190)
 [node name="P2" parent="." instance=ExtResource("3_fighter")]
 position = Vector2(400, 190)
 player_id = 2
+is_cpu = true
 
 [node name="HUD" parent="." instance=ExtResource("5_hud")]

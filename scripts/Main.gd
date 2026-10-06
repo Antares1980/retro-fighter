@@ -2,6 +2,7 @@ class_name Main
 extends Node2D
 
 const FighterScript = preload("res://scripts/Fighter.gd")
+const AIControllerScript = preload("res://scripts/AIController.gd")
 
 ## Main Match Loop & Orchestrator for Retro Fighter.
 ## Orchestrates the match FSM: ROUND_INTRO (1.5s) -> IN_ROUND (inputs active, timer 99s)
@@ -33,6 +34,7 @@ var round_timer: float = float(INITIAL_ROUND_TIME)
 var state_timer: float = 0.0
 var last_winner_id: int = 0
 var last_reason: String = ""
+var ai_controller: Node = null
 
 @onready var p1: CharacterBody2D = $P1 if has_node("P1") else null
 @onready var p2: CharacterBody2D = $P2 if has_node("P2") else null
@@ -92,6 +94,16 @@ func _resolve_nodes() -> void:
 	if is_instance_valid(p2):
 		if not p2.health_changed.is_connected(_on_p2_health_changed):
 			p2.health_changed.connect(_on_p2_health_changed)
+		if p2.get("is_cpu"):
+			if ai_controller == null:
+				for child in p2.get_children():
+					if child.get_script() == AIControllerScript:
+						ai_controller = child
+						break
+				if ai_controller == null:
+					ai_controller = AIControllerScript.new()
+					p2.add_child(ai_controller)
+			ai_controller.setup(p2, p1)
 
 ## Starts the full match sequence from Round 1.
 func start_match() -> void:
@@ -101,6 +113,9 @@ func start_match() -> void:
 func start_round() -> void:
 	round_timer = float(initial_round_time)
 	state_timer = 0.0
+
+	if is_instance_valid(ai_controller) and ai_controller.has_method("reset"):
+		ai_controller.reset()
 
 	if is_instance_valid(p1):
 		p1.reset_round(P1_START_X)
@@ -229,6 +244,8 @@ func _trigger_round_over(winner_id: int, reason: String, banner: String) -> void
 	round_ended.emit(winner_id, reason)
 
 func _perform_reset() -> void:
+	if is_instance_valid(ai_controller) and ai_controller.has_method("reset"):
+		ai_controller.reset()
 	start_round()
 
 func _set_inputs_frozen(frozen: bool) -> void:

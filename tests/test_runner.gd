@@ -16,7 +16,10 @@ func _init():
 	var test_orchestrator = load("res://tests/test_stage_hud_orchestrator.gd").new()
 	var success_orchestrator: bool = test_orchestrator.run_all()
 
-	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator:
+	var test_ai_controller = load("res://tests/test_ai_controller.gd").new()
+	var success_ai_controller: bool = test_ai_controller.run_all()
+
+	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller:
 		print("\n[ALL TESTS PASSED SUCCESSFULLY]")
 		quit(0)
 	else:
