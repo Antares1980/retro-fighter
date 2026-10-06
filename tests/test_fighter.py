@@ -110,6 +110,28 @@ class TestFighter(unittest.TestCase):
         # AC-10 specifies toggle action toggle_p2_dummy
         self.assertIn('event.is_action_pressed("toggle_p2_dummy")', self.fighter_code)
 
+    def test_procedural_polygon2d_rig(self):
+        rig_nodes = [
+            "BackArm", "BackLeg", "TorsoGi", "Belt", "BeltKnot",
+            "Head", "Hair", "Headband", "Ties", "LeadLeg", "LeadArm", "Glove"
+        ]
+        for node in rig_nodes:
+            self.assertIn(f'node name="{node}" type="Polygon2D" parent="Visual"', self.fighter_scene)
+
+        # Placeholders must be gone
+        self.assertNotIn('node name="Body" type="ColorRect"', self.fighter_scene)
+        self.assertNotIn('node name="AttackVisual" type="ColorRect"', self.fighter_scene)
+
+    def test_retyped_visual_members_and_palettes(self):
+        self.assertIn("torso_gi: Polygon2D = $Visual/TorsoGi", self.fighter_code)
+        self.assertIn("head_poly: Polygon2D = $Visual/Head", self.fighter_code)
+        self.assertNotIn("attack_visual", self.fighter_code)
+        self.assertNotIn("_set_attack_visual", self.fighter_code)
+        self.assertNotIn("GI_COLOR_P1", self.fighter_code)
+        self.assertNotIn("GI_COLOR_P2", self.fighter_code)
+        self.assertIn("const PALETTES: Dictionary =", self.fighter_code)
+        self.assertIn("func apply_palette(", self.fighter_code)
+
 
 if __name__ == "__main__":
     unittest.main()

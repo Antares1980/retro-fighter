@@ -49,6 +49,7 @@ func run_all() -> bool:
 	test_ac06_boundary_clamping()
 	test_ac07_ko_knockdown_dead_and_reset()
 	test_ac10_p2_dummy_toggle_and_behavior()
+	test_ac1_palette_application_on_setup()
 
 	print("\n=== Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -88,8 +89,34 @@ func test_scene_structure_and_nodes() -> void:
 	# Visual
 	var visual = fighter.get_node_or_null("Visual")
 	assert_true(visual != null, "Visual Node2D exists")
-	var body = fighter.get_node_or_null("Visual/Body")
-	assert_true(body != null, "Visual/Body ColorRect exists")
+	var torso_gi = fighter.get_node_or_null("Visual/TorsoGi")
+	assert_true(torso_gi != null, "Visual/TorsoGi Polygon2D exists")
+	assert_true(torso_gi is Polygon2D, "Visual/TorsoGi is Polygon2D")
+
+	var rig_nodes = [
+		{"name": "BackArm", "z": -2},
+		{"name": "BackLeg", "z": -1},
+		{"name": "TorsoGi", "z": 0},
+		{"name": "Belt", "z": 1},
+		{"name": "BeltKnot", "z": 1},
+		{"name": "Head", "z": 2},
+		{"name": "Hair", "z": 3},
+		{"name": "Headband", "z": 3},
+		{"name": "Ties", "z": 2},
+		{"name": "LeadLeg", "z": 4},
+		{"name": "LeadArm", "z": 5},
+		{"name": "Glove", "z": 5},
+	]
+	for node_info in rig_nodes:
+		var node = fighter.get_node_or_null("Visual/" + node_info["name"])
+		assert_true(node != null, "Visual/%s exists" % node_info["name"])
+		assert_true(node is Polygon2D, "Visual/%s is Polygon2D" % node_info["name"])
+		if node is Polygon2D:
+			assert_equal(node.z_index, node_info["z"], "Visual/%s z_index is %d" % [node_info["name"], node_info["z"]])
+			assert_true(node.z_as_relative, "Visual/%s z_as_relative is true" % node_info["name"])
+
+	assert_true(fighter.get_node_or_null("Visual/Body") == null, "Visual/Body ColorRect replaced")
+	assert_true(fighter.get_node_or_null("Visual/AttackVisual") == null, "Visual/AttackVisual ColorRect removed")
 
 	fighter.free()
 
@@ -121,7 +148,8 @@ func test_setup_player_parameterization() -> void:
 	assert_equal(f1.hitbox.collision_mask, HitboxScript.MASK_P2_HURTBOX, "P1 Hitbox mask is Layer 6 (32)")
 	assert_equal(f1.health, 100, "P1 initial health is 100")
 	assert_equal(f1.state, FighterScript.State.IDLE, "P1 initial state is IDLE")
-	assert_equal(f1.body_rect.color, FighterScript.GI_COLOR_P1, "P1 gi color is blue")
+	assert_equal(f1.torso_gi.color, FighterScript.PALETTES[1]["gi"], "P1 gi color is white")
+	assert_equal(f1.get_node("Visual/Headband").color, FighterScript.PALETTES[1]["accent"], "P1 headband is crimson")
 	f1.free()
 
 	var f2 = FighterScene.instantiate()
@@ -131,7 +159,8 @@ func test_setup_player_parameterization() -> void:
 	assert_equal(f2.hurtbox.collision_layer, HitboxScript.MASK_P2_HURTBOX, "P2 Hurtbox layer is Layer 6 (32)")
 	assert_equal(f2.hitbox.collision_layer, HitboxScript.MASK_P2_HITBOX, "P2 Hitbox layer is Layer 7 (64)")
 	assert_equal(f2.hitbox.collision_mask, HitboxScript.MASK_P1_HURTBOX, "P2 Hitbox mask is Layer 4 (8)")
-	assert_equal(f2.body_rect.color, FighterScript.GI_COLOR_P2, "P2 gi color is red")
+	assert_equal(f2.torso_gi.color, FighterScript.PALETTES[2]["gi"], "P2 gi color is navy")
+	assert_equal(f2.get_node("Visual/Headband").color, FighterScript.PALETTES[2]["accent"], "P2 headband is gold")
 	f2.free()
 
 func test_auto_facing() -> void:
@@ -607,3 +636,15 @@ func test_ac10_p2_dummy_toggle_and_behavior() -> void:
 
 	p1.free()
 	p2.free()
+
+func test_ac1_palette_application_on_setup() -> void:
+	print("\nScenario: AC-1 - Palette Application on Setup")
+	var f = FighterScene.instantiate()
+	f.setup(2)
+	var torso = f.get_node_or_null("Visual/TorsoGi") as Polygon2D
+	var headband = f.get_node_or_null("Visual/Headband") as Polygon2D
+	assert_true(torso != null, "TorsoGi node exists on unparented setup(2)")
+	assert_true(headband != null, "Headband node exists on unparented setup(2)")
+	assert_equal(torso.color, Color("243356"), "Visual/TorsoGi.color equals Color('243356') (navy)")
+	assert_equal(headband.color, Color("e6a117"), "Visual/Headband.color equals Color('e6a117') (gold)")
+	f.free()
