@@ -66,6 +66,7 @@ func run_all() -> bool:
 	test_ac5_headless_execution_safety()
 	test_13_state_animations_and_track_isolation()
 	test_crouch_and_knockdown_visual_heights()
+	test_virtual_input_seam_and_hardware_decoupling()
 
 	print("\n=== Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -813,4 +814,127 @@ func test_crouch_and_knockdown_visual_heights() -> void:
 	assert_true(dead_height <= 16.001, "Dead visual height is <=16 px (got: %f)" % dead_height)
 
 	fighter.free()
+
+func test_virtual_input_seam_and_hardware_decoupling() -> void:
+	print("\nScenario: Virtual Input Seam & Hardware Decoupling (Issue #18)")
+	var f = FighterScene.instantiate()
+	f.setup(2)
+
+	# Defaults
+	assert_false(f.is_cpu, "Default is_cpu is false")
+	assert_equal(f.input_dir, 0.0, "Default input_dir is 0.0")
+	assert_false(f.input_punch, "Default input_punch is false")
+	assert_false(f.input_kick, "Default input_kick is false")
+	assert_false(f.input_block, "Default input_block is false")
+
+	# Enable CPU mode
+	f.is_cpu = true
+
+	# is_action_pressed: block
+	f.input_block = true
+	assert_true(f.is_action_pressed("block"), "CPU: is_action_pressed('block') is true when input_block is true")
+	f.input_block = false
+	assert_false(f.is_action_pressed("block"), "CPU: is_action_pressed('block') is false when input_block is false")
+
+	# is_action_pressed: left / right
+	f.input_dir = -0.5
+	assert_true(f.is_action_pressed("left"), "CPU: is_action_pressed('left') is true when input_dir < 0.0")
+	assert_false(f.is_action_pressed("right"), "CPU: is_action_pressed('right') is false when input_dir < 0.0")
+
+	f.input_dir = 0.5
+	assert_false(f.is_action_pressed("left"), "CPU: is_action_pressed('left') is false when input_dir > 0.0")
+	assert_true(f.is_action_pressed("right"), "CPU: is_action_pressed('right') is true when input_dir > 0.0")
+
+	f.input_dir = 0.0
+	assert_false(f.is_action_pressed("left"), "CPU: is_action_pressed('left') is false when input_dir is 0.0")
+	assert_false(f.is_action_pressed("right"), "CPU: is_action_pressed('right') is false when input_dir is 0.0")
+
+	# is_action_pressed: unhandled actions return false
+	assert_false(f.is_action_pressed("up"), "CPU: is_action_pressed('up') is false")
+	assert_false(f.is_action_pressed("down"), "CPU: is_action_pressed('down') is false")
+	assert_false(f.is_action_pressed("punch"), "CPU: is_action_pressed('punch') is false")
+	assert_false(f.is_action_pressed("kick"), "CPU: is_action_pressed('kick') is false")
+
+	# is_action_just_pressed: punch / kick
+	f.input_punch = true
+	assert_true(f.is_action_just_pressed("punch"), "CPU: is_action_just_pressed('punch') is true when input_punch is true")
+	f.input_punch = false
+	assert_false(f.is_action_just_pressed("punch"), "CPU: is_action_just_pressed('punch') is false when input_punch is false")
+
+	f.input_kick = true
+	assert_true(f.is_action_just_pressed("kick"), "CPU: is_action_just_pressed('kick') is true when input_kick is true")
+	f.input_kick = false
+	assert_false(f.is_action_just_pressed("kick"), "CPU: is_action_just_pressed('kick') is false when input_kick is false")
+
+	# is_action_just_pressed: unhandled actions return false
+	assert_false(f.is_action_just_pressed("block"), "CPU: is_action_just_pressed('block') is false")
+	assert_false(f.is_action_just_pressed("left"), "CPU: is_action_just_pressed('left') is false")
+	assert_false(f.is_action_just_pressed("right"), "CPU: is_action_just_pressed('right') is false")
+	assert_false(f.is_action_just_pressed("up"), "CPU: is_action_just_pressed('up') is false")
+	assert_false(f.is_action_just_pressed("down"), "CPU: is_action_just_pressed('down') is false")
+
+	# is_action_just_released: left / right
+	f.input_dir = 0.0
+	assert_true(f.is_action_just_released("left"), "CPU: is_action_just_released('left') is true when input_dir is 0.0")
+	assert_true(f.is_action_just_released("right"), "CPU: is_action_just_released('right') is true when input_dir is 0.0")
+
+	f.input_dir = 1.0
+	assert_false(f.is_action_just_released("left"), "CPU: is_action_just_released('left') is false when input_dir is 1.0")
+	assert_false(f.is_action_just_released("right"), "CPU: is_action_just_released('right') is false when input_dir is 1.0")
+
+	assert_false(f.is_action_just_released("punch"), "CPU: is_action_just_released('punch') is false")
+	assert_false(f.is_action_just_released("kick"), "CPU: is_action_just_released('kick') is false")
+	assert_false(f.is_action_just_released("block"), "CPU: is_action_just_released('block') is false")
+
+	# _get_horizontal_input: clamping and value passthrough
+	f.input_dir = 0.75
+	assert_equal(f._get_horizontal_input(), 0.75, "CPU: _get_horizontal_input() passes input_dir within [-1, 1]")
+	f.input_dir = -0.75
+	assert_equal(f._get_horizontal_input(), -0.75, "CPU: _get_horizontal_input() passes negative input_dir")
+	f.input_dir = 2.5
+	assert_equal(f._get_horizontal_input(), 1.0, "CPU: _get_horizontal_input() clamps > 1.0 to 1.0")
+	f.input_dir = -3.0
+	assert_equal(f._get_horizontal_input(), -1.0, "CPU: _get_horizontal_input() clamps < -1.0 to -1.0")
+	f.input_dir = 0.0
+	assert_equal(f._get_horizontal_input(), 0.0, "CPU: _get_horizontal_input() returns 0.0 when input_dir is 0.0")
+
+	# Guard: inputs_frozen
+	f.input_dir = 1.0
+	f.input_punch = true
+	f.input_kick = true
+	f.input_block = true
+	f.inputs_frozen = true
+	assert_false(f.is_action_pressed("block"), "CPU: inputs_frozen suppresses is_action_pressed('block')")
+	assert_false(f.is_action_pressed("right"), "CPU: inputs_frozen suppresses is_action_pressed('right')")
+	assert_false(f.is_action_just_pressed("punch"), "CPU: inputs_frozen suppresses is_action_just_pressed('punch')")
+	assert_false(f.is_action_just_pressed("kick"), "CPU: inputs_frozen suppresses is_action_just_pressed('kick')")
+	assert_false(f.is_action_just_released("right"), "CPU: inputs_frozen suppresses is_action_just_released('right')")
+	assert_equal(f._get_horizontal_input(), 0.0, "CPU: inputs_frozen returns 0.0 for _get_horizontal_input()")
+	f.inputs_frozen = false
+
+	# Guard: is_dummy and player_id == 2
+	f.is_dummy = true
+	assert_false(f.is_action_pressed("block"), "CPU: dummy P2 suppresses is_action_pressed('block')")
+	assert_false(f.is_action_pressed("right"), "CPU: dummy P2 suppresses is_action_pressed('right')")
+	assert_false(f.is_action_just_pressed("punch"), "CPU: dummy P2 suppresses is_action_just_pressed('punch')")
+	assert_false(f.is_action_just_pressed("kick"), "CPU: dummy P2 suppresses is_action_just_pressed('kick')")
+	assert_false(f.is_action_just_released("right"), "CPU: dummy P2 suppresses is_action_just_released('right')")
+	assert_equal(f._get_horizontal_input(), 0.0, "CPU: dummy P2 returns 0.0 for _get_horizontal_input()")
+
+	# Guard does NOT suppress P1 even if dummy is true
+	f.player_id = 1
+	assert_true(f.is_action_pressed("block"), "CPU: dummy flag does not suppress P1 is_action_pressed('block')")
+	assert_equal(f._get_horizontal_input(), 1.0, "CPU: dummy flag does not suppress P1 _get_horizontal_input()")
+	f.player_id = 2
+	f.is_dummy = false
+
+	# reset_fighter clears virtual inputs
+	f.reset_fighter(400.0)
+	assert_equal(f.input_dir, 0.0, "reset_fighter clears input_dir to 0.0")
+	assert_false(f.input_punch, "reset_fighter clears input_punch to false")
+	assert_false(f.input_kick, "reset_fighter clears input_kick to false")
+	assert_false(f.input_block, "reset_fighter clears input_block to false")
+
+	f.free()
+
 
