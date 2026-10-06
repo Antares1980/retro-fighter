@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented state machine animation synchronization and neutral reset (Issue #14):
+  - Updated `scenes/Fighter.tscn`: Added `AnimationPlayer` configured with `callback_mode_process = 0` (`AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS`).
+  - Authored full 13-state procedural animation mapping via `create_animation_library()` in `scripts/Fighter.gd`:
+    - `"RESET"`: deterministic neutral pose resetting all 12 limb nodes (`position = Vector2.ZERO`, `rotation = 0.0`).
+    - `"idle"`: rhythmic breathing loop with subtle 2px torso bob and tie flutter (24 ticks, looping).
+    - `"walk"` / `"walk_backward"`: forward/backward stepping stride swinging `LeadLeg` and `BackLeg` with arm counter-swings (16 ticks, looping).
+    - `"crouch"`: held low guard pose with visual height ≤32 px to match crouch hurtbox.
+    - `"jump_squat"`: preparatory compression squat (3 ticks).
+    - `"jump"` / `"fall"`: held aerial tuck and descent poses.
+    - `"punch"`: 12 ticks total (startup 1–4, active 5–7 extending `LeadArm` +18 px forward into punch hitbox, recovery 8–12).
+    - `"kick"`: 19 ticks total (startup 1–7, active 8–11 extending `LeadLeg` into low kick zone, recovery 12–19).
+    - `"block"` / `"crouch_block"`: two-arm cross-guard posture adapting to standing or crouch-blocking (visual height ≤32 px).
+    - `"block_stun"` / `"crouch_block_stun"`: recoil/guard shudder holding last pose (8 ticks, visual height ≤32 px).
+    - `"hit"`: recoil leaning backward holding last pose (18 ticks).
+    - `"knockdown"` / `"dead"`: held poses lying flat on floor with visual height ≤16 px.
+  - Enforced Animation Invariants in `scripts/Fighter.gd`:
+    - Cosmetic only: Hitbox activation and combat timing remain driven by `state_ticks`.
+    - Track isolation: Animation tracks may key only limb nodes under `Visual` (`Head`, `Hair`, `Headband`, `Ties`, `TorsoGi`, `Belt`, `BeltKnot`, `LeadArm`, `Glove`, `BackArm`, `LeadLeg`, `BackLeg`), never `Visual.scale.x` or collision nodes.
+    - Neutral `RESET` on transition: In `change_state()`, neutral reset is applied before playing target animation.
+    - Headless null guards: Wrapped all animation player calls in `if animation_player != null:`.
+  - Added test fixtures in `tests/test_fighter.gd` verifying Acceptance Criteria AC1–AC5 (`test_ac1_palette_application_on_setup`, `test_ac2_punch_animation_synchronization`, `test_ac3_attack_interrupt_neutral_reset`, `test_ac4_p2_mirrored_low_kick_invariant`, `test_ac5_headless_execution_safety`, `test_13_state_animations_and_track_isolation`, `test_crouch_and_knockdown_visual_heights`).
+  - Added unit test fixtures in `tests/test_fighter.py` validating `AnimationPlayer` scene structure, constants, invariants, and mapping.
 - Implemented modular procedural Polygon2D karateka rig and dynamic palette swapping (Issue #13):
   - Replaced placeholder `ColorRect` visual nodes (`Body`, `Head`, `AttackVisual`) in `scenes/Fighter.tscn` with a 12-node hierarchical `Polygon2D` karateka rig: `BackArm` (z -2), `BackLeg` (z -1), `TorsoGi` (z 0), `Belt` (z 1), `BeltKnot` (z 1), `Head` (z 2), `Hair` (z 3), `Headband` (z 3), `Ties` (z 2), `LeadLeg` (z 4), `LeadArm` (z 5), and `Glove` (z 5) with relative z-indexing (`z_as_relative = true`).
   - Added dynamic palette swapping via `PALETTES` dictionary in `scripts/Fighter.gd`: Player 1 white gi with crimson accents (`Color("ffffff")` / `Color("b81414")`), Player 2 navy gi with gold accents (`Color("243356")` / `Color("e6a117")`).
