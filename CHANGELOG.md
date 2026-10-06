@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Expanded Python static and scene contract tests in `tests/test_fighter.py` validating the Polygon2D rig nodes, retyped members, and palettes.
 
 ### Fixed
+- Fixed single-precision floating point comparison failures in GDScript test suites (`assert_equal`) by adopting `is_equal_approx()` for float, Vector2, and Color assertions, resolving headless engine CI test failures on animation clip length evaluations.
 - Fixed `scripts/Fighter.gd` walk velocity test failures by restoring input action release checks for forward and backward walking, avoiding premature IDLE transitions when input axes are neutral.
 - Fixed `scripts/Main.gd` match FSM initialization so `ROUND_INTRO` entry logic (freezing inputs, displaying `FIGHT!` announcer banner) triggers deterministically upon `_ready()` and round reset.
 - Fixed headless Godot engine script parse error in `scripts/Main.gd` where `Fighter` type annotation failed during headless execution without pre-cached global script registry.

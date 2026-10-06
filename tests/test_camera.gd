@@ -25,7 +25,17 @@ func assert_false(condition: bool, message: String) -> void:
 	assert_true(not condition, message)
 
 func assert_equal(actual, expected, message: String) -> void:
-	if actual == expected:
+	var matches: bool = false
+	if (typeof(actual) == TYPE_FLOAT or typeof(actual) == TYPE_INT) and (typeof(expected) == TYPE_FLOAT or typeof(expected) == TYPE_INT) and (typeof(actual) == TYPE_FLOAT or typeof(expected) == TYPE_FLOAT):
+		matches = is_equal_approx(float(actual), float(expected))
+	elif actual is Vector2 and expected is Vector2:
+		matches = (actual as Vector2).is_equal_approx(expected as Vector2)
+	elif actual is Color and expected is Color:
+		matches = (actual as Color).is_equal_approx(expected as Color)
+	else:
+		matches = (actual == expected)
+
+	if matches:
 		passed += 1
 		print("  [PASS] %s (got expected: %s)" % [message, str(expected)])
 	else:
