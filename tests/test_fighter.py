@@ -180,6 +180,24 @@ class TestFighter(unittest.TestCase):
         # All animation calls must be wrapped in null check
         self.assertIn('if animation_player != null', self.fighter_code)
 
+    def test_cpu_export_and_virtual_input_properties(self):
+        self.assertIn("@export var is_cpu: bool = false", self.fighter_code)
+        self.assertIn("var input_dir: float = 0.0", self.fighter_code)
+        self.assertIn("var input_punch: bool = false", self.fighter_code)
+        self.assertIn("var input_kick: bool = false", self.fighter_code)
+        self.assertIn("var input_block: bool = false", self.fighter_code)
+
+    def test_cpu_virtual_input_routing(self):
+        # Verify is_action_pressed branches for is_cpu
+        self.assertIn("if is_cpu:", self.fighter_code)
+        self.assertIn("return input_block", self.fighter_code)
+        self.assertIn("return input_dir < 0.0", self.fighter_code)
+        self.assertIn("return input_dir > 0.0", self.fighter_code)
+        self.assertIn("return input_punch", self.fighter_code)
+        self.assertIn("return input_kick", self.fighter_code)
+        self.assertIn("return is_zero_approx(input_dir)", self.fighter_code)
+        self.assertIn("return clampf(input_dir, -1.0, 1.0)", self.fighter_code)
+
 
 if __name__ == "__main__":
     unittest.main()

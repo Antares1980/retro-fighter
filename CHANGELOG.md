@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Virtual Input Seam & Hardware Decoupling in `scripts/Fighter.gd` (Issue #18):
+  - Added `@export var is_cpu: bool = false` to toggle between hardware `Input` and virtual inputs.
+  - Added virtual input properties: `input_dir: float = 0.0`, `input_punch: bool = false`, `input_kick: bool = false`, `input_block: bool = false`.
+  - Routed CPU virtual inputs through core input helpers without polling hardware `Input`:
+    - `is_action_pressed`: returns `input_block` for `"block"`, `input_dir < 0.0` for `"left"`, `input_dir > 0.0` for `"right"`, and `false` for unhandled actions or when inputs are frozen / dummy P2.
+    - `is_action_just_pressed`: returns `input_punch` for `"punch"`, `input_kick` for `"kick"`, and `false` for unhandled actions or when inputs are frozen / dummy P2.
+    - `is_action_just_released`: returns `is_zero_approx(input_dir)` for `"left"` and `"right"`, and `false` for unhandled actions or when inputs are frozen / dummy P2.
+    - `_get_horizontal_input`: returns `clampf(input_dir, -1.0, 1.0)`, and `0.0` when inputs are frozen or dummy P2.
+  - Reset virtual input state cleanly on `reset_fighter()`.
+  - Renamed local variables in `_process_idle`, `_process_walk_forward`, and `_process_walk_backward` to prevent variable shadowing warnings.
+  - Added test suite `test_virtual_input_seam_and_hardware_decoupling()` in `tests/test_fighter.gd` and unit tests in `tests/test_fighter.py` validating 100% contract compliance and backwards compatibility across all 26 existing tests.
 - Implemented state machine animation synchronization and neutral reset (Issue #14):
   - Updated `scenes/Fighter.tscn`: Added `AnimationPlayer` configured with `callback_mode_process = 0` (`AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS`).
   - Authored full 13-state procedural animation mapping via `create_animation_library()` in `scripts/Fighter.gd`:

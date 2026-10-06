@@ -102,6 +102,7 @@ const STATE_ANIMATIONS: Dictionary = {
 }
 
 @export var player_id: int = 1
+@export var is_cpu: bool = false
 @export var max_health: int = MAX_HEALTH
 var health: int = MAX_HEALTH
 var state: State = State.IDLE
@@ -113,6 +114,13 @@ var inputs_enabled: bool:
 		return not inputs_frozen
 	set(val):
 		inputs_frozen = not val
+
+# Virtual CPU Inputs
+var input_dir: float = 0.0
+var input_punch: bool = false
+var input_kick: bool = false
+var input_block: bool = false
+
 var opponent: CharacterBody2D = null
 var camera: Camera2D = null
 
@@ -266,9 +274,9 @@ func _process_idle(_delta: float) -> void:
 		change_state(State.CROUCHING)
 		return
 
-	var input_dir: float = _get_horizontal_input()
-	if input_dir != 0.0:
-		if (input_dir > 0 and facing == 1) or (input_dir < 0 and facing == -1):
+	var move_dir: float = _get_horizontal_input()
+	if move_dir != 0.0:
+		if (move_dir > 0 and facing == 1) or (move_dir < 0 and facing == -1):
 			change_state(State.WALK_FORWARD)
 		else:
 			change_state(State.WALK_BACKWARD)
@@ -290,8 +298,8 @@ func _process_walk_forward(_delta: float) -> void:
 		change_state(State.CROUCHING)
 		return
 
-	var input_dir: float = _get_horizontal_input()
-	if (input_dir > 0 and facing == -1) or (input_dir < 0 and facing == 1):
+	var move_dir: float = _get_horizontal_input()
+	if (move_dir > 0 and facing == -1) or (move_dir < 0 and facing == 1):
 		change_state(State.WALK_BACKWARD)
 	elif is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
@@ -315,8 +323,8 @@ func _process_walk_backward(_delta: float) -> void:
 		change_state(State.CROUCHING)
 		return
 
-	var input_dir: float = _get_horizontal_input()
-	if (input_dir > 0 and facing == 1) or (input_dir < 0 and facing == -1):
+	var move_dir: float = _get_horizontal_input()
+	if (move_dir > 0 and facing == 1) or (move_dir < 0 and facing == -1):
 		change_state(State.WALK_FORWARD)
 	elif is_action_just_released("left") or is_action_just_released("right"):
 		change_state(State.IDLE)
@@ -659,6 +667,10 @@ func reset_fighter(start_x: float = 0.0) -> void:
 	set_facing(facing)
 
 	inputs_frozen = false
+	input_dir = 0.0
+	input_punch = false
+	input_kick = false
+	input_block = false
 	change_state(State.IDLE)
 	# NOTE: is_dummy persists across round reset per AC-10
 
@@ -710,6 +722,16 @@ func is_action_pressed(action: String) -> bool:
 		return false
 	if is_dummy and player_id == 2:
 		return false
+	if is_cpu:
+		match action:
+			"block":
+				return input_block
+			"left":
+				return input_dir < 0.0
+			"right":
+				return input_dir > 0.0
+			_:
+				return false
 	return Input.is_action_pressed(get_action_name(action))
 
 func is_action_just_pressed(action: String) -> bool:
@@ -717,6 +739,14 @@ func is_action_just_pressed(action: String) -> bool:
 		return false
 	if is_dummy and player_id == 2:
 		return false
+	if is_cpu:
+		match action:
+			"punch":
+				return input_punch
+			"kick":
+				return input_kick
+			_:
+				return false
 	return Input.is_action_just_pressed(get_action_name(action))
 
 func is_action_just_released(action: String) -> bool:
@@ -724,9 +754,19 @@ func is_action_just_released(action: String) -> bool:
 		return false
 	if is_dummy and player_id == 2:
 		return false
+	if is_cpu:
+		match action:
+			"left", "right":
+				return is_zero_approx(input_dir)
+			_:
+				return false
 	return Input.is_action_just_released(get_action_name(action))
 
 func _get_horizontal_input() -> float:
+	if is_cpu:
+		if inputs_frozen or (is_dummy and player_id == 2):
+			return 0.0
+		return clampf(input_dir, -1.0, 1.0)
 	var left_pressed: bool = is_action_pressed("left")
 	var right_pressed: bool = is_action_pressed("right")
 	if left_pressed and not right_pressed:
