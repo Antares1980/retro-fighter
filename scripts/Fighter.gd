@@ -63,8 +63,22 @@ const STAGE_MAX_X: float = 584.0
 const VIEWPORT_MARGIN_X: float = 16.0
 
 # Visual Styling
-const GI_COLOR_P1: Color = Color(0.2, 0.4, 0.9, 1.0)
-const GI_COLOR_P2: Color = Color(0.9, 0.2, 0.2, 1.0)
+const PALETTES: Dictionary = {
+	1: {
+		"gi": Color("ffffff"),
+		"accent": Color("b81414"),
+		"skin": Color("fcd8a8"),
+		"hair": Color("2b1d0c"),
+		"belt": Color("1a1a1a"),
+	},
+	2: {
+		"gi": Color("243356"),
+		"accent": Color("e6a117"),
+		"skin": Color("fcd8a8"),
+		"hair": Color("1a1a1a"),
+		"belt": Color("1a1a1a"),
+	}
+}
 
 @export var player_id: int = 1
 @export var max_health: int = MAX_HEALTH
@@ -95,9 +109,8 @@ var is_crouch_blocking: bool = false
 @onready var hurtbox: Hurtbox = $Hurtbox if has_node("Hurtbox") else null
 @onready var hitbox: Hitbox = $Hitbox if has_node("Hitbox") else null
 @onready var visual: Node2D = $Visual if has_node("Visual") else null
-@onready var body_rect: ColorRect = $Visual/Body if has_node("Visual/Body") else null
-@onready var head_rect: ColorRect = $Visual/Head if has_node("Visual/Head") else null
-@onready var attack_visual: ColorRect = $Visual/AttackVisual if has_node("Visual/AttackVisual") else null
+@onready var torso_gi: Polygon2D = $Visual/TorsoGi if has_node("Visual/TorsoGi") else null
+@onready var head_poly: Polygon2D = $Visual/Head if has_node("Visual/Head") else null
 
 func _init() -> void:
 	# Default CharacterBody2D configuration
@@ -124,16 +137,14 @@ func _init_nodes() -> void:
 		hitbox = $Hitbox
 	if visual == null and has_node("Visual"):
 		visual = $Visual
-	if body_rect == null and has_node("Visual/Body"):
-		body_rect = $Visual/Body
-	if head_rect == null and has_node("Visual/Head"):
-		head_rect = $Visual/Head
-	if attack_visual == null and has_node("Visual/AttackVisual"):
-		attack_visual = $Visual/AttackVisual
+	if torso_gi == null and has_node("Visual/TorsoGi"):
+		torso_gi = $Visual/TorsoGi
+	if head_poly == null and has_node("Visual/Head"):
+		head_poly = $Visual/Head
 
 ## Configures the fighter for Player 1 or Player 2.
-## P1: Hurtbox Layer 4, Hitbox Layer 5 (mask 6), gi color blue.
-## P2: Hurtbox Layer 6, Hitbox Layer 7 (mask 4), gi color red.
+## P1: Hurtbox Layer 4, Hitbox Layer 5 (mask 6), white gi / crimson accents.
+## P2: Hurtbox Layer 6, Hitbox Layer 7 (mask 4), navy gi / gold accents.
 func setup(p_player_id: int) -> void:
 	player_id = p_player_id
 	_init_nodes()
@@ -152,11 +163,10 @@ func setup(p_player_id: int) -> void:
 
 	if player_id == 1:
 		facing = 1
-		set_gi_color(GI_COLOR_P1)
 	elif player_id == 2:
 		facing = -1
-		set_gi_color(GI_COLOR_P2)
 
+	apply_palette(player_id)
 	set_facing(facing)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -350,15 +360,12 @@ func _process_attack_punch(_delta: float) -> void:
 			hitbox.activate()
 			for area in hitbox.get_overlapping_areas():
 				hitbox.trigger_hit(area)
-		_set_attack_visual(true, "punch")
 	elif attack_tick == PUNCH_STARTUP_TICKS + PUNCH_ACTIVE_TICKS + 1:
 		if hitbox != null:
 			hitbox.deactivate()
-		_set_attack_visual(false)
 	elif attack_tick > PUNCH_TOTAL_TICKS:
 		if hitbox != null:
 			hitbox.deactivate()
-		_set_attack_visual(false)
 		change_state(State.IDLE)
 
 func _process_attack_kick(_delta: float) -> void:
@@ -373,15 +380,12 @@ func _process_attack_kick(_delta: float) -> void:
 			hitbox.activate()
 			for area in hitbox.get_overlapping_areas():
 				hitbox.trigger_hit(area)
-		_set_attack_visual(true, "kick")
 	elif attack_tick == KICK_STARTUP_TICKS + KICK_ACTIVE_TICKS + 1:
 		if hitbox != null:
 			hitbox.deactivate()
-		_set_attack_visual(false)
 	elif attack_tick > KICK_TOTAL_TICKS:
 		if hitbox != null:
 			hitbox.deactivate()
-		_set_attack_visual(false)
 		change_state(State.IDLE)
 
 func _process_block_stun(_delta: float) -> void:
@@ -437,7 +441,6 @@ func change_state(new_state: State) -> void:
 	if old_state in [State.ATTACK_PUNCH, State.ATTACK_KICK]:
 		if hitbox != null:
 			hitbox.deactivate()
-		_set_attack_visual(false)
 
 	# Enter new state
 	match new_state:
@@ -597,7 +600,6 @@ func reset_fighter(start_x: float = 0.0) -> void:
 		hitbox.reset_hit()
 
 	_set_visual_crouch(false)
-	_set_attack_visual(false)
 
 	if player_id == 1:
 		facing = 1
@@ -683,37 +685,66 @@ func _get_horizontal_input() -> float:
 	return 0.0
 
 func set_gi_color(color: Color) -> void:
-	if body_rect != null:
-		body_rect.color = color
+	if torso_gi != null:
+		torso_gi.color = color
 
-func _set_visual_crouch(crouch: bool) -> void:
-	if body_rect != null:
-		if crouch:
-			body_rect.offset_top = -32.0
-		else:
-			body_rect.offset_top = -54.0
-	if head_rect != null:
-		if crouch:
-			head_rect.offset_top = -32.0
-			head_rect.offset_bottom = -18.0
-		else:
-			head_rect.offset_top = -54.0
-			head_rect.offset_bottom = -40.0
+func apply_palette(p_player_id: int = -1) -> void:
+	var pid: int = player_id if p_player_id <= 0 else p_player_id
+	if not PALETTES.has(pid):
+		return
+	var palette: Dictionary = PALETTES[pid]
 
-func _set_attack_visual(active: bool, attack_type: String = "") -> void:
-	if attack_visual != null:
-		attack_visual.visible = active
-		if active:
-			if attack_type == "punch":
-				attack_visual.offset_left = 12.0
-				attack_visual.offset_top = -42.0
-				attack_visual.offset_right = 32.0
-				attack_visual.offset_bottom = -30.0
-			elif attack_type == "kick":
-				attack_visual.offset_left = 12.0
-				attack_visual.offset_top = -18.0
-				attack_visual.offset_right = 36.0
-				attack_visual.offset_bottom = -6.0
+	var node_torso: Polygon2D = get_node_or_null("Visual/TorsoGi") as Polygon2D
+	if node_torso != null and palette.has("gi"):
+		node_torso.color = palette["gi"]
+
+	var node_lead_leg: Polygon2D = get_node_or_null("Visual/LeadLeg") as Polygon2D
+	if node_lead_leg != null and palette.has("gi"):
+		node_lead_leg.color = palette["gi"]
+
+	var node_back_leg: Polygon2D = get_node_or_null("Visual/BackLeg") as Polygon2D
+	if node_back_leg != null and palette.has("gi"):
+		node_back_leg.color = palette["gi"]
+
+	var node_headband: Polygon2D = get_node_or_null("Visual/Headband") as Polygon2D
+	if node_headband != null and palette.has("accent"):
+		node_headband.color = palette["accent"]
+
+	var node_ties: Polygon2D = get_node_or_null("Visual/Ties") as Polygon2D
+	if node_ties != null and palette.has("accent"):
+		node_ties.color = palette["accent"]
+
+	var node_glove: Polygon2D = get_node_or_null("Visual/Glove") as Polygon2D
+	if node_glove != null and palette.has("accent"):
+		node_glove.color = palette["accent"]
+
+	var node_head: Polygon2D = get_node_or_null("Visual/Head") as Polygon2D
+	if node_head != null and palette.has("skin"):
+		node_head.color = palette["skin"]
+
+	var node_lead_arm: Polygon2D = get_node_or_null("Visual/LeadArm") as Polygon2D
+	if node_lead_arm != null and palette.has("skin"):
+		node_lead_arm.color = palette["skin"]
+
+	var node_back_arm: Polygon2D = get_node_or_null("Visual/BackArm") as Polygon2D
+	if node_back_arm != null and palette.has("skin"):
+		node_back_arm.color = palette["skin"]
+
+	var node_hair: Polygon2D = get_node_or_null("Visual/Hair") as Polygon2D
+	if node_hair != null and palette.has("hair"):
+		node_hair.color = palette["hair"]
+
+	var node_belt: Polygon2D = get_node_or_null("Visual/Belt") as Polygon2D
+	if node_belt != null and palette.has("belt"):
+		node_belt.color = palette["belt"]
+
+	var node_belt_knot: Polygon2D = get_node_or_null("Visual/BeltKnot") as Polygon2D
+	if node_belt_knot != null and palette.has("belt"):
+		node_belt_knot.color = palette["belt"]
+
+func _set_visual_crouch(_crouch: bool) -> void:
+	if visual != null:
+		visual.position = Vector2.ZERO
 
 func _find_opponent_and_camera() -> void:
 	if opponent == null and get_parent() != null:

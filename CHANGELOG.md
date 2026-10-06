@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Implemented modular procedural Polygon2D karateka rig and dynamic palette swapping (Issue #13):
+  - Replaced placeholder `ColorRect` visual nodes (`Body`, `Head`, `AttackVisual`) in `scenes/Fighter.tscn` with a 12-node hierarchical `Polygon2D` karateka rig: `BackArm` (z -2), `BackLeg` (z -1), `TorsoGi` (z 0), `Belt` (z 1), `BeltKnot` (z 1), `Head` (z 2), `Hair` (z 3), `Headband` (z 3), `Ties` (z 2), `LeadLeg` (z 4), `LeadArm` (z 5), and `Glove` (z 5) with relative z-indexing (`z_as_relative = true`).
+  - Added dynamic palette swapping via `PALETTES` dictionary in `scripts/Fighter.gd`: Player 1 white gi with crimson accents (`Color("ffffff")` / `Color("b81414")`), Player 2 navy gi with gold accents (`Color("243356")` / `Color("e6a117")`).
+  - Implemented `apply_palette()` in `scripts/Fighter.gd` using safe `get_node_or_null` lookups and integrated directly into `setup(p_player_id)`.
+  - Retyped `body_rect` to `torso_gi: Polygon2D` and `head_rect` to `head_poly: Polygon2D` with safe binding in `_init_nodes()`.
+  - Retired `_set_attack_visual()` and removed all call sites in `scripts/Fighter.gd`.
+  - Refactored `_set_visual_crouch()` to remove `offset_top` references, preserving `Visual.position` at `Vector2(0, 0)`.
+  - Updated GDScript test suite in `tests/test_fighter.gd` verifying `Visual/TorsoGi`, all procedural rig nodes, and AC-1 palette application on setup.
+  - Expanded Python static and scene contract tests in `tests/test_fighter.py` validating the Polygon2D rig nodes, retyped members, and palettes.
+
 ### Fixed
 - Fixed `scripts/Fighter.gd` walk velocity test failures by restoring input action release checks for forward and backward walking, avoiding premature IDLE transitions when input axes are neutral.
 - Fixed `scripts/Main.gd` match FSM initialization so `ROUND_INTRO` entry logic (freezing inputs, displaying `FIGHT!` announcer banner) triggers deterministically upon `_ready()` and round reset.
