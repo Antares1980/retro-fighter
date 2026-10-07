@@ -1,6 +1,50 @@
 import os
+import struct
 import unittest
-import soundfile as sf
+
+class OggVorbisInfo:
+    def __init__(self, channels: int, samplerate: int, duration: float, format: str = "OGG", subtype: str = "VORBIS"):
+        self.channels = channels
+        self.samplerate = samplerate
+        self.duration = duration
+        self.format = format
+        self.subtype = subtype
+
+
+def parse_ogg_vorbis(filepath: str) -> OggVorbisInfo:
+    with open(filepath, "rb") as f:
+        data = f.read()
+
+    if not data.startswith(b"OggS"):
+        raise ValueError("Not an OGG container")
+
+    # The first page contains the Vorbis identification header packet
+    num_segments = data[26]
+    segment_table = data[27 : 27 + num_segments]
+    header_size = 27 + num_segments
+
+    first_pkt_len = 0
+    for seg in segment_table:
+        first_pkt_len += seg
+        if seg < 255:
+            break
+
+    first_packet = data[header_size : header_size + first_pkt_len]
+
+    if len(first_packet) < 30 or first_packet[0] != 1 or first_packet[1:7] != b"vorbis":
+        raise ValueError("Not a Vorbis audio stream")
+
+    channels = first_packet[11]
+    samplerate = struct.unpack("<I", first_packet[12:16])[0]
+
+    last_pos = data.rfind(b"OggS")
+    if last_pos == -1:
+        raise ValueError("No OggS pages found")
+    last_granule = struct.unpack("<q", data[last_pos + 6 : last_pos + 14])[0]
+    duration = last_granule / samplerate
+
+    return OggVorbisInfo(channels=channels, samplerate=samplerate, duration=duration)
+
 
 class TestAudioPipeline(unittest.TestCase):
     @classmethod
@@ -44,8 +88,8 @@ class TestAudioPipeline(unittest.TestCase):
         # Must be < 2.5 MB (2,621,440 bytes)
         self.assertLess(file_size, 2.5 * 1024 * 1024, "Audio file must be < 2.5 MB")
 
-        # Verify Vorbis audio properties using soundfile
-        info = sf.info(self.audio_path)
+        # Verify Vorbis audio properties
+        info = parse_ogg_vorbis(self.audio_path)
         self.assertEqual(info.channels, 2, "Audio must be stereo (2 channels)")
         self.assertEqual(info.samplerate, 44100, "Audio sample rate must be 44.1 kHz")
         self.assertEqual(info.format, "OGG", "Container format must be OGG")
