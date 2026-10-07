@@ -54,6 +54,8 @@ func _ready() -> void:
 	if is_instance_valid(hud) and hud.has_method("_ready") and hud.get("timer_label") == null:
 		hud._ready()
 	start_match()
+	_start_bgm_immediate()
+
 
 func _resolve_nodes() -> void:
 	if p1 == null and has_node("P1"):
@@ -169,10 +171,13 @@ func change_match_state(new_state: MatchState, force: bool = false) -> void:
 
 	match_state_changed.emit(old_state, new_state)
 
-func _on_round_started() -> void:
+func _start_bgm_immediate() -> void:
 	if is_instance_valid(bgm_player) and is_inside_tree():
 		if not bgm_player.playing:
 			bgm_player.play()
+
+func _on_round_started() -> void:
+	_start_bgm_immediate()
 
 func _physics_process(delta: float) -> void:
 	step(delta)

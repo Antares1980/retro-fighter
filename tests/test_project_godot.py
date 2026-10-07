@@ -83,5 +83,9 @@ class TestProjectGodot(unittest.TestCase):
         # F1: 4194332
         self.assertRegex(self.content, r'toggle_p2_dummy=\{[^}]*"physical_keycode":\s*4194332')
 
+    def test_audio_bus_layout(self):
+        self.assertIn("[audio]", self.content)
+        self.assertRegex(self.content, r'buses/default_bus_layout\s*=\s*"res://default_bus_layout\.tres"')
+
 if __name__ == "__main__":
     unittest.main()
