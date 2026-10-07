@@ -53,13 +53,12 @@ func test_audio_bus_layout() -> void:
 	var bus_layout: AudioBusLayout = load("res://default_bus_layout.tres") as AudioBusLayout
 	assert_true(bus_layout != null, "res://default_bus_layout.tres loads as AudioBusLayout")
 
-	if bus_layout != null:
-		assert_true(bus_layout.bus_count >= 3, "Audio bus layout has at least 3 buses")
-		assert_equal(bus_layout.get_bus_name(0), "Master", "Bus 0 is Master")
-		assert_equal(bus_layout.get_bus_name(1), "Music", "Bus 1 is Music")
-		assert_equal(bus_layout.get_bus_send(1), "Master", "Bus 1 (Music) routes to Master")
-		assert_equal(bus_layout.get_bus_name(2), "SFX", "Bus 2 is SFX")
-		assert_equal(bus_layout.get_bus_send(2), "Master", "Bus 2 (SFX) routes to Master")
+	assert_true(AudioServer.bus_count >= 3, "Audio bus layout has at least 3 buses")
+	assert_equal(AudioServer.get_bus_name(0), "Master", "Bus 0 is Master")
+	assert_equal(AudioServer.get_bus_name(1), "Music", "Bus 1 is Music")
+	assert_equal(AudioServer.get_bus_send(1), "Master", "Bus 1 (Music) routes to Master")
+	assert_equal(AudioServer.get_bus_name(2), "SFX", "Bus 2 is SFX")
+	assert_equal(AudioServer.get_bus_send(2), "Master", "Bus 2 (SFX) routes to Master")
 
 func test_audio_asset_stream_contract() -> void:
 	print("\nScenario: Ogg Vorbis Stream Contract & Loop Metadata")

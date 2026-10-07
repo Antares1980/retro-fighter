@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Match Lifecycle Script Orchestration & Automated Headless Verification (Issue #24):
+  - Updated `scripts/Main.gd` (strictly additive):
+    - Declared member variables `bgm_player: AudioStreamPlayer = null` and `_bgm_tween: Tween = null`.
+    - In `_resolve_nodes()`, defensively resolved `bgm_player = get_node("BGMPlayer")` if present.
+    - Wired match lifecycle hooks in `change_match_state`:
+      - `MatchState.IN_ROUND`: triggers `_on_round_started()` as the exclusive playback starter.
+      - `MatchState.ROUND_OVER`: triggers `_on_round_ended(last_winner_id, last_reason)` initiating tween slowdown.
+      - `MatchState.RESET`: triggers `_on_round_reset()`.
+    - Implemented defensive audio handlers `_on_round_started()`, `_on_round_ended()`, and `_on_round_reset()` with `is_inside_tree()` guards preventing out-of-tree crashes.
+    - Applied 0.9s dual-property parallel tween on round over: decelerates `pitch_scale` to 0.72 and dampens `volume_db` to -12.0 dB using `TRANS_QUAD` and `EASE_OUT`.
+    - Reset handler cleanly terminates and nullifies `_bgm_tween`, stops playback, and restores pitch (1.0) and volume (0.0 dB).
+  - Created automated headless test suite `tests/test_audio_orchestrator.gd`:
+    - Test Case 1: AudioServer bus layout contract routing Music and SFX to Master.
+    - Test Case 2: Main scene composition and AudioStream loop properties (`loop == true`, `0.0 < loop_offset < length`).
+    - Test Case 3: In-tree in-round playback starting from 0.0s for the intro fanfare.
+    - Test Case 4: In-tree round-over slowdown interpolating pitch to 0.72 and volume to -12 dB across KO, TIME_UP, and DRAW.
+    - Test Case 5: Match reset state cleanliness verifying tween termination and restored pitch/volume.
+    - Test Case 6: Out-of-tree headless safety asserting zero crashes, null references, or tween errors.
+  - Registered test suite in `tests/test_runner.gd` and updated runner to execute in `_process` for active SceneTree lifecycle compatibility.
 - Implemented Audio Asset Pipeline & Engine Bus Infrastructure (Issue #23):
   - Created documentation standard `docs/standards/audio-pipeline.md`:
     - Documented 4-phase audio production workflow: AI generation prompt (140 BPM, Yamaha FM synth, CPS-1 style), Audacity silence trimming and zero-crossing loop snapping, Godot 4 Ogg Vorbis import configuration (`loop = true`, `loop_offset = 6.4`), and in-engine bus routing.

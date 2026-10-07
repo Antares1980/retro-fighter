@@ -1,6 +1,6 @@
 extends SceneTree
 
-func _init():
+func _process(_delta: float) -> bool:
 	var test_foundation = load("res://tests/test_engine_foundation.gd").new()
 	var success_foundation: bool = test_foundation.run_all()
 
@@ -22,10 +22,14 @@ func _init():
 	var test_audio = load("res://tests/test_audio_pipeline.gd").new()
 	var success_audio: bool = test_audio.run_all()
 
-	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller and success_audio:
+	var test_audio_orchestrator = load("res://tests/test_audio_orchestrator.gd").new(self)
+	var success_audio_orchestrator: bool = test_audio_orchestrator.run_all(self)
+
+	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller and success_audio and success_audio_orchestrator:
 		print("\n[ALL TESTS PASSED SUCCESSFULLY]")
 		quit(0)
 	else:
 		printerr("\n[TESTS FAILED]")
 		quit(1)
+	return true
 
