@@ -124,9 +124,28 @@ class TestAudioPipeline(unittest.TestCase):
 
         # BGMPlayer node exists with AudioStreamPlayer type
         self.assertIn('node name="BGMPlayer" type="AudioStreamPlayer" parent="."', content)
-        self.assertIn('res://audio/music/stage_theme.ogg', content)
+        self.assertTrue('res://audio/music/retro-fighter.ogg' in content or 'res://audio/music/stage_theme.ogg' in content)
         self.assertIn('bus = &"Music"', content)
         self.assertIn('autoplay = false', content)
+
+    def test_retro_fighter_audio_asset_properties(self):
+        retro_audio_path = os.path.join(self.base_dir, "audio", "music", "retro-fighter.ogg")
+        self.assertTrue(os.path.isfile(retro_audio_path), "audio/music/retro-fighter.ogg must exist")
+        info = parse_ogg_vorbis(retro_audio_path)
+        self.assertEqual(info.channels, 2, "retro-fighter.ogg must be stereo (2 channels)")
+        self.assertEqual(info.samplerate, 44100, "retro-fighter.ogg sample rate must be 44.1 kHz")
+        self.assertEqual(info.format, "OGG")
+        self.assertEqual(info.subtype, "VORBIS")
+        self.assertAlmostEqual(info.duration, 170.66, delta=0.5)
+
+    def test_retro_fighter_import_metadata(self):
+        retro_import_path = os.path.join(self.base_dir, "audio", "music", "retro-fighter.ogg.import")
+        self.assertTrue(os.path.isfile(retro_import_path), "audio/music/retro-fighter.ogg.import must exist")
+        with open(retro_import_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("[params]", content)
+        self.assertRegex(content, r'loop\s*=\s*true')
+        self.assertRegex(content, r'loop_offset\s*=\s*0(\.0)?')
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented In-Engine Combat Music Integration (Issue #27):
+  - Committed authentic combat music asset `res://audio/music/retro-fighter.ogg` (44.1 kHz, 2-channel Stereo, 170.66s duration).
+  - Committed import metadata `res://audio/music/retro-fighter.ogg.import` with `loop = true` and `loop_offset = 0.0`.
+  - Updated `scenes/Main.tscn` to assign `res://audio/music/retro-fighter.ogg` to `BGMPlayer` on the `Music` bus with `autoplay = false`.
+  - Refactored `scripts/Main.gd`:
+    - Initiates combat BGM playback on initial entry to `MatchState.IN_ROUND` (`if not bgm_player.playing: bgm_player.play()`).
+    - Eliminates `stop()` on `MatchState.RESET`, enabling continuous playback across rounds and seamless loop continuity.
+    - Excised unrequested pitch/volume slowdown tween (`_bgm_tween`, `_on_round_ended()`) to reduce regression surface area and decouple from SceneTree lifecycle.
+  - Updated test suites:
+    - Updated `tests/test_audio_orchestrator.gd` validating Scenarios 1–5: Ogg Vorbis loop metadata contract (`loop = true`, `loop_offset = 0.0`), runtime loop wrap-around contract (L1), initial combat playback synchronization on first `IN_ROUND`, continuous uninterrupted playback across match state transitions (`ROUND_OVER` -> `RESET` -> `ROUND_INTRO` -> subsequent `IN_ROUND`), and headless out-of-tree safety.
+    - Updated `tests/test_audio_pipeline.py` to assert `retro-fighter.ogg` audio properties and import metadata.
+
 - Implemented Match Lifecycle Script Orchestration & Automated Headless Verification (Issue #24):
   - Updated `scripts/Main.gd` (strictly additive):
     - Declared member variables `bgm_player: AudioStreamPlayer = null` and `_bgm_tween: Tween = null`.
