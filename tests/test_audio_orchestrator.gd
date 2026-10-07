@@ -141,12 +141,12 @@ func test_case_3_initial_combat_playback_synchronization() -> void:
 	assert_true(main.is_inside_tree(), "Main is inside active SceneTree")
 	assert_true(is_instance_valid(main.bgm_player), "bgm_player resolved defensively")
 	assert_equal(main.match_state, MainScript.MatchState.ROUND_INTRO, "Initial state is ROUND_INTRO")
-	assert_false(main.bgm_player.playing, "BGMPlayer is silent during initial ~1.5s ROUND_INTRO")
+	assert_true(main.bgm_player.playing, "BGMPlayer is playing during initial ROUND_INTRO")
 
 	# Step through ROUND_INTRO (1.5s) to trigger IN_ROUND
 	main.step(1.5)
 	assert_equal(main.match_state, MainScript.MatchState.IN_ROUND, "Match state transitioned to IN_ROUND")
-	assert_true(main.bgm_player.playing, "BGMPlayer started playback upon entering IN_ROUND")
+	assert_true(main.bgm_player.playing, "BGMPlayer is playing in IN_ROUND")
 	assert_equal(main.bgm_player.bus, &"Music", "BGMPlayer bus is &\"Music\"")
 	assert_true(main.bgm_player.get_playback_position() >= 0.0, "Playback position is non-negative")
 

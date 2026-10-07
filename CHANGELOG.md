@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Immediate Game Audio Boot Playback & Engine Bus Hardening (Issue #29):
+  - Added idempotent `_start_bgm_immediate()` helper in `scripts/Main.gd` guarded with `is_inside_tree()` and invoked directly from `_ready()`, eliminating 1.5-second initial dead silence during `ROUND_INTRO`.
+  - Registered `buses/default_bus_layout="res://default_bus_layout.tres"` in `project.godot` under `[audio]` section for deterministic audio bus routing (`Music` -> `Master`, `SFX` -> `Master`).
+  - Preserved `autoplay = false` contract on `BGMPlayer` in `scenes/Main.tscn`.
+  - Superseded obsolete test contract in `tests/test_audio_orchestrator.gd`: inverted line 144 assertion to verify immediate playback during `ROUND_INTRO` and updated diagnostic failure messages.
+  - Added test in `tests/test_project_godot.py` asserting `[audio]` and `buses/default_bus_layout` in `project.godot`.
+
 - Implemented In-Engine Combat Music Integration (Issue #27):
   - Committed authentic combat music asset `res://audio/music/retro-fighter.ogg` (44.1 kHz, 2-channel Stereo, 170.66s duration).
   - Committed import metadata `res://audio/music/retro-fighter.ogg.import` with `loop = true` and `loop_offset = 0.0`.
