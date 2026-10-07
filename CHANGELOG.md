@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Audio Asset Pipeline & Engine Bus Infrastructure (Issue #23):
+  - Created documentation standard `docs/standards/audio-pipeline.md`:
+    - Documented 4-phase audio production workflow: AI generation prompt (140 BPM, Yamaha FM synth, CPS-1 style), Audacity silence trimming and zero-crossing loop snapping, Godot 4 Ogg Vorbis import configuration (`loop = true`, `loop_offset = 6.4`), and in-engine bus routing.
+    - Embedded GitHub-compatible Mermaid architecture flowchart with `<br/>` linebreaks and quoted edge labels `-->|"Match State: ROUND_OVER (Any Reason)"|`.
+    - Marked auxiliary generator steps (Suno, Udio, BeepBox) as non-normative guidance.
+  - Delivered committed audio assets:
+    - Added `res://audio/music/stage_theme.ogg` (stereo Vorbis, 44.1 kHz, Quality 5/6, 254.9 KB < 2.5 MB).
+    - Added `res://audio/music/stage_theme.ogg.import` configuring `loop = true` and `loop_offset = 6.4`.
+  - Delivered committed audio bus layout:
+    - Added `res://default_bus_layout.tres` containing buses `Master`, `Music` (routed to `Master`), and `SFX` (routed to `Master`, reserved for upcoming sound effects).
+  - Updated scene composition:
+    - Added `AudioStreamPlayer` node named `BGMPlayer` as a direct child of root in `scenes/Main.tscn` configured with `stream = ExtResource("res://audio/music/stage_theme.ogg")`, `bus = &"Music"`, and `autoplay = false`.
+  - Added test coverage & verified backwards compatibility:
+    - Created `tests/test_audio_pipeline.py` verifying documentation standards, Vorbis stream properties, import metadata, audio bus layout, and main scene composition.
+    - Created `tests/test_audio_pipeline.gd` verifying runtime bus routing, stream length/looping contract, BGMPlayer composition, and preloaded scene node integrity.
+    - Registered `tests/test_audio_pipeline.gd` in `tests/test_runner.gd` for 100% automated headless verification.
 - Implemented AIController Node, Main Orchestrator Integration & Test Suite (Issue #19):
   - Created `scripts/AIController.gd` as a pure GDScript `Node`:
     - Actionability guard: checks `fighter.state` against `HIT_STUN`, `BLOCK_STUN`, `KNOCKDOWN`, `DEAD`, `inputs_frozen`, and `is_dummy`, zeroing virtual inputs and returning early.

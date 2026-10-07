@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://c8xq2nvlj6qyo"]
+[gd_scene load_steps=7 format=3 uid="uid://c8xq2nvlj6qyo"]
 
 [ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/Stage.tscn" id="2_stage"]
 [ext_resource type="PackedScene" path="res://scenes/Fighter.tscn" id="3_fighter"]
 [ext_resource type="PackedScene" path="res://scenes/Camera2D.tscn" id="4_camera"]
 [ext_resource type="PackedScene" path="res://scenes/HUD.tscn" id="5_hud"]
+[ext_resource type="AudioStream" path="res://audio/music/stage_theme.ogg" id="6_audio"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
@@ -23,3 +24,8 @@ player_id = 2
 is_cpu = true
 
 [node name="HUD" parent="." instance=ExtResource("5_hud")]
+
+[node name="BGMPlayer" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("6_audio")
+autoplay = false
+bus = &"Music"

@@ -19,9 +19,13 @@ func _init():
 	var test_ai_controller = load("res://tests/test_ai_controller.gd").new()
 	var success_ai_controller: bool = test_ai_controller.run_all()
 
-	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller:
+	var test_audio = load("res://tests/test_audio_pipeline.gd").new()
+	var success_audio: bool = test_audio.run_all()
+
+	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller and success_audio:
 		print("\n[ALL TESTS PASSED SUCCESSFULLY]")
 		quit(0)
 	else:
 		printerr("\n[TESTS FAILED]")
 		quit(1)
+
