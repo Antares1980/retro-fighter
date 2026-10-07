@@ -1,6 +1,7 @@
 # Godot 4
 .godot/
 *.translation
+*.uid
 
 # Python
 __pycache__/

@@ -42,6 +42,9 @@ var ai_controller: Node = null
 @onready var camera: Camera2D = $Camera2D if has_node("Camera2D") else null
 @onready var stage: Node2D = $Stage if has_node("Stage") else null
 
+var bgm_player: AudioStreamPlayer = null
+var _bgm_tween: Tween = null
+
 func _ready() -> void:
 	process_physics_priority = 50
 	_resolve_nodes()
@@ -64,6 +67,8 @@ func _resolve_nodes() -> void:
 		camera = get_node("Camera2D")
 	if stage == null and has_node("Stage"):
 		stage = get_node("Stage")
+	if bgm_player == null and has_node("BGMPlayer"):
+		bgm_player = get_node("BGMPlayer")
 
 	if p1 == null or p2 == null:
 		for child in get_children():
@@ -157,12 +162,38 @@ func change_match_state(new_state: MatchState, force: bool = false) -> void:
 				elif hud.has_node("AnnouncerLabel"):
 					hud.get_node("AnnouncerLabel").text = ""
 					hud.get_node("AnnouncerLabel").visible = false
+			_on_round_started()
 		MatchState.ROUND_OVER:
 			_set_inputs_frozen(true)
+			_on_round_ended(last_winner_id, last_reason)
 		MatchState.RESET:
+			_on_round_reset()
 			_perform_reset()
 
 	match_state_changed.emit(old_state, new_state)
+
+func _on_round_started() -> void:
+	if is_instance_valid(bgm_player) and is_inside_tree():
+		if not bgm_player.playing:
+			bgm_player.play()
+
+func _on_round_ended(_winner_id: int, _reason: String) -> void:
+	if is_instance_valid(bgm_player) and is_inside_tree():
+		if is_instance_valid(_bgm_tween):
+			_bgm_tween.kill()
+		_bgm_tween = create_tween()
+		_bgm_tween.set_parallel(true)
+		_bgm_tween.tween_property(bgm_player, "pitch_scale", 0.72, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		_bgm_tween.tween_property(bgm_player, "volume_db", -12.0, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+func _on_round_reset() -> void:
+	if is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+		_bgm_tween = null
+	if is_instance_valid(bgm_player):
+		bgm_player.stop()
+		bgm_player.pitch_scale = 1.0
+		bgm_player.volume_db = 0.0
 
 func _physics_process(delta: float) -> void:
 	step(delta)
