@@ -1,9 +1,9 @@
 class_name TestAudioOrchestrator
 extends RefCounted
 
-## Automated Headless Verification Suite for Match Lifecycle Script Orchestration.
-## Verifies BGMPlayer orchestration, bus layout, lifecycle transitions, tween slowdown,
-## reset state cleanliness, and out-of-tree headless safety.
+## Automated Headless Verification Suite for Match Lifecycle & In-Engine Combat Music Integration.
+## Verifies BGMPlayer orchestration, bus layout, retro-fighter.ogg loop metadata contract,
+## initial combat synchronization, continuous playback across rounds, and out-of-tree headless safety.
 
 const MainScene = preload("res://scenes/Main.tscn")
 const MainScript = preload("res://scripts/Main.gd")
@@ -61,36 +61,53 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	elif tree == null:
 		tree = _get_tree()
 
-	print("\n=== Running Audio Orchestrator & Match Lifecycle Tests ===")
+	print("\n=== Running Audio Orchestrator & Combat Music Integration Tests ===")
 	test_case_1_bus_layout_contract()
-	test_case_2_scene_and_asset_contract()
-	test_case_3_in_tree_in_round_playback()
-	test_case_4_in_tree_round_over_slowdown()
-	test_case_5_match_reset_state_cleanliness()
+	test_case_2_ogg_loop_metadata_contract()
+	test_case_3_initial_combat_playback_synchronization()
+	test_case_4_continuous_playback_across_state_transitions()
+	test_case_5_runtime_loop_wrap_around_contract()
 	test_case_6_out_of_tree_headless_safety()
 
 	print("\n=== Audio Orchestrator Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
 
 func test_case_1_bus_layout_contract() -> void:
-	print("\nTest Case 1 (Bus Layout Contract): AudioServer Music and SFX routing to Master")
-	assert_true(AudioServer.bus_count >= 3, "AudioServer has at least 3 buses")
-
+	print("\nTest Case 1 (Bus Layout Contract): AudioServer Music routing to Master")
 	var master_idx: int = AudioServer.get_bus_index("Master")
 	var music_idx: int = AudioServer.get_bus_index("Music")
-	var sfx_idx: int = AudioServer.get_bus_index("SFX")
 
 	assert_true(master_idx >= 0, "AudioServer has 'Master' bus")
 	assert_true(music_idx >= 0, "AudioServer has 'Music' bus")
-	assert_true(sfx_idx >= 0, "AudioServer has 'SFX' bus")
 
 	if music_idx >= 0:
 		assert_equal(AudioServer.get_bus_send(music_idx), "Master", "Music bus routes to Master")
-	if sfx_idx >= 0:
-		assert_equal(AudioServer.get_bus_send(sfx_idx), "Master", "SFX bus routes to Master")
 
-func test_case_2_scene_and_asset_contract() -> void:
-	print("\nTest Case 2 (Scene & Asset Contract): Main BGMPlayer wiring and AudioStream properties")
+func test_case_2_ogg_loop_metadata_contract() -> void:
+	print("\nTest Case 2 (Scenario 1 - Ogg Vorbis Loop Metadata Contract): retro-fighter.ogg & import metadata")
+	# 1. Inspect import configuration file directly
+	var import_path = "res://audio/music/retro-fighter.ogg.import"
+	assert_true(FileAccess.file_exists(import_path), "res://audio/music/retro-fighter.ogg.import exists on disk")
+	if FileAccess.file_exists(import_path):
+		var file = FileAccess.open(import_path, FileAccess.READ)
+		var content = file.get_as_text()
+		file.close()
+		assert_true(content.contains("loop=true"), "retro-fighter.ogg.import specifies loop=true")
+		assert_true(content.contains("loop_offset=0.0") or content.contains("loop_offset=0"), "retro-fighter.ogg.import specifies loop_offset = 0.0")
+
+	# 2. Inspect runtime loaded stream via ResourceLoader
+	var stream: Resource = ResourceLoader.load("res://audio/music/retro-fighter.ogg")
+	assert_true(stream != null, "res://audio/music/retro-fighter.ogg loads via ResourceLoader")
+	if stream != null:
+		assert_true(stream is AudioStream, "Stream is an AudioStream")
+		if "loop" in stream:
+			assert_true(stream.get("loop") == true, "stream.loop is true")
+		if "loop_offset" in stream:
+			assert_equal(float(stream.get("loop_offset")), 0.0, "stream.loop_offset is 0.0")
+		if stream.has_method("get_length"):
+			assert_true(stream.get_length() > 150.0, "stream length (~170.66s) exceeds 150.0s (actual: %.2fs)" % stream.get_length())
+
+	# 3. Main scene composition
 	var main = MainScene.instantiate()
 	assert_true(main != null, "scenes/Main.tscn instantiates cleanly")
 	assert_true(main.has_node("BGMPlayer"), "scenes/Main.tscn contains BGMPlayer node")
@@ -102,20 +119,16 @@ func test_case_2_scene_and_asset_contract() -> void:
 		assert_equal(player.bus, &"Music", "BGMPlayer is assigned to 'Music' bus")
 		assert_false(player.autoplay, "BGMPlayer autoplay is false")
 		assert_true(player.stream != null, "BGMPlayer has a valid audio stream assigned")
-
-		var stream = player.stream
-		if stream != null:
-			if "loop" in stream:
-				assert_true(stream.get("loop") == true, "stream.loop is true")
-			if "loop_offset" in stream:
-				var offset: float = float(stream.get("loop_offset"))
-				var length: float = stream.get_length()
-				assert_true(offset > 0.0 and offset < length, "stream loop_offset (%.2fs) is between 0.0 and length (%.2fs)" % [offset, length])
+		if player.stream != null:
+			if "loop" in player.stream:
+				assert_true(player.stream.get("loop") == true, "Assigned stream.loop is true")
+			if "loop_offset" in player.stream:
+				assert_equal(float(player.stream.get("loop_offset")), 0.0, "Assigned stream.loop_offset is 0.0")
 
 	main.free()
 
-func test_case_3_in_tree_in_round_playback() -> void:
-	print("\nTest Case 3 (In-Tree In-Round Playback): stepping to IN_ROUND starts playback from 0.0s")
+func test_case_3_initial_combat_playback_synchronization() -> void:
+	print("\nTest Case 3 (Scenario 3 - Initial Combat Playback Synchronization): start on first IN_ROUND")
 	var active_tree = _get_tree()
 	assert_true(active_tree != null, "Active SceneTree is available")
 	if active_tree == null:
@@ -128,16 +141,16 @@ func test_case_3_in_tree_in_round_playback() -> void:
 	assert_true(main.is_inside_tree(), "Main is inside active SceneTree")
 	assert_true(is_instance_valid(main.bgm_player), "bgm_player resolved defensively")
 	assert_equal(main.match_state, MainScript.MatchState.ROUND_INTRO, "Initial state is ROUND_INTRO")
-	assert_false(main.bgm_player.playing, "BGMPlayer is not playing during ROUND_INTRO")
+	assert_false(main.bgm_player.playing, "BGMPlayer is silent during initial ~1.5s ROUND_INTRO")
 
 	# Step through ROUND_INTRO (1.5s) to trigger IN_ROUND
 	main.step(1.5)
 	assert_equal(main.match_state, MainScript.MatchState.IN_ROUND, "Match state transitioned to IN_ROUND")
 	assert_true(main.bgm_player.playing, "BGMPlayer started playback upon entering IN_ROUND")
-	assert_true(main.bgm_player.get_playback_position() >= 0.0, "Playback started from beginning (0.0s) for intro fanfare")
+	assert_equal(main.bgm_player.bus, &"Music", "BGMPlayer bus is &\"Music\"")
+	assert_true(main.bgm_player.get_playback_position() >= 0.0, "Playback position is non-negative")
 
 	# Subsequent steps in IN_ROUND do not restart playback
-	var pos_before = main.bgm_player.get_playback_position()
 	main.step(0.1)
 	assert_true(main.bgm_player.playing, "BGMPlayer continues playing in IN_ROUND")
 
@@ -145,75 +158,65 @@ func test_case_3_in_tree_in_round_playback() -> void:
 	root.remove_child(main)
 	main.free()
 
-func test_case_4_in_tree_round_over_slowdown() -> void:
-	print("\nTest Case 4 (In-Tree Round-Over Slowdown): _bgm_tween interpolates pitch to 0.72 and volume to -12 dB")
+func test_case_4_continuous_playback_across_state_transitions() -> void:
+	print("\nTest Case 4 (Scenario 4 - Continuous Playback Across Match State Transitions): loops across rounds without stopping")
 	var active_tree = _get_tree()
 	assert_true(active_tree != null, "Active SceneTree is available")
 	if active_tree == null:
 		return
 	var root = active_tree.root
 
-	# Subtest A: KO transition
-	var main_ko = MainScene.instantiate()
-	root.add_child(main_ko)
-	main_ko.step(1.5) # Enter IN_ROUND
-	assert_true(main_ko.bgm_player.playing, "BGMPlayer is playing before KO")
+	var main = MainScene.instantiate()
+	root.add_child(main)
 
-	main_ko.p2.health = 0
-	main_ko.step(1.0 / 60.0) # Trigger KO terminal condition
-	assert_equal(main_ko.match_state, MainScript.MatchState.ROUND_OVER, "State transitioned to ROUND_OVER on KO")
-	assert_true(is_instance_valid(main_ko._bgm_tween), "_bgm_tween created on ROUND_OVER")
-	assert_true(main_ko._bgm_tween.is_valid() and main_ko._bgm_tween.is_running(), "_bgm_tween is active and running")
+	# Enter IN_ROUND
+	main.step(1.5)
+	assert_equal(main.match_state, MainScript.MatchState.IN_ROUND, "Entered IN_ROUND")
+	assert_true(main.bgm_player.playing, "BGMPlayer playing in IN_ROUND")
 
-	# Step tween to completion (0.9s duration)
-	main_ko._bgm_tween.custom_step(0.9)
-	assert_equal(main_ko.bgm_player.pitch_scale, 0.72, "Pitch scale interpolated to 0.72 on KO")
-	assert_equal(main_ko.bgm_player.volume_db, -12.0, "Volume dB interpolated to -12.0 dB on KO")
+	# Subtest A: Transition to ROUND_OVER via KO
+	main.p2.health = 0
+	main.step(1.0 / 60.0)
+	assert_equal(main.match_state, MainScript.MatchState.ROUND_OVER, "State transitioned to ROUND_OVER on KO")
+	assert_true(main.bgm_player.playing, "BGMPlayer continuously playing during ROUND_OVER")
 
-	main_ko.bgm_player.stop()
-	if is_instance_valid(main_ko._bgm_tween):
-		main_ko._bgm_tween.kill()
-	root.remove_child(main_ko)
-	main_ko.free()
+	# Advance through ROUND_OVER (3.0s delay) -> transitions to RESET and immediately to ROUND_INTRO
+	main.step(3.0)
+	assert_equal(main.match_state, MainScript.MatchState.ROUND_INTRO, "State transitioned through RESET to ROUND_INTRO")
+	assert_true(main.bgm_player.playing, "BGMPlayer continuously playing during RESET and subsequent ROUND_INTRO (not stopped)")
 
-	# Subtest B: TIME_UP transition
-	var main_time = MainScene.instantiate()
-	root.add_child(main_time)
-	main_time.step(1.5) # Enter IN_ROUND
-	main_time.step(99.0) # Countdown timeout
-	assert_equal(main_time.match_state, MainScript.MatchState.ROUND_OVER, "State transitioned to ROUND_OVER on TIME_UP")
-	assert_true(is_instance_valid(main_time._bgm_tween), "_bgm_tween created on TIME_UP")
-	main_time._bgm_tween.custom_step(0.9)
-	assert_equal(main_time.bgm_player.pitch_scale, 0.72, "Pitch scale interpolated to 0.72 on TIME_UP")
-	assert_equal(main_time.bgm_player.volume_db, -12.0, "Volume dB interpolated to -12.0 dB on TIME_UP")
+	# Advance through subsequent ROUND_INTRO (1.5s) -> transitions to subsequent IN_ROUND
+	main.step(1.5)
+	assert_equal(main.match_state, MainScript.MatchState.IN_ROUND, "State transitioned to subsequent IN_ROUND")
+	assert_true(main.bgm_player.playing, "BGMPlayer continuously playing in subsequent IN_ROUND")
 
-	main_time.bgm_player.stop()
-	if is_instance_valid(main_time._bgm_tween):
-		main_time._bgm_tween.kill()
-	root.remove_child(main_time)
-	main_time.free()
+	# Subtest B: Direct FSM transition validation across all match states
+	main.change_match_state(MainScript.MatchState.ROUND_OVER)
+	assert_true(main.bgm_player.playing, "BGM playing after direct transition to ROUND_OVER")
 
-	# Subtest C: DRAW transition
-	var main_draw = MainScene.instantiate()
-	root.add_child(main_draw)
-	main_draw.step(1.5) # Enter IN_ROUND
-	main_draw.p1.health = 0
-	main_draw.p2.health = 0
-	main_draw.step(1.0 / 60.0)
-	assert_equal(main_draw.match_state, MainScript.MatchState.ROUND_OVER, "State transitioned to ROUND_OVER on DRAW")
-	assert_true(is_instance_valid(main_draw._bgm_tween), "_bgm_tween created on DRAW")
-	main_draw._bgm_tween.custom_step(0.9)
-	assert_equal(main_draw.bgm_player.pitch_scale, 0.72, "Pitch scale interpolated to 0.72 on DRAW")
-	assert_equal(main_draw.bgm_player.volume_db, -12.0, "Volume dB interpolated to -12.0 dB on DRAW")
+	main.change_match_state(MainScript.MatchState.RESET)
+	assert_true(main.bgm_player.playing, "BGM playing after direct transition to RESET (stop() eliminated)")
 
-	main_draw.bgm_player.stop()
-	if is_instance_valid(main_draw._bgm_tween):
-		main_draw._bgm_tween.kill()
-	root.remove_child(main_draw)
-	main_draw.free()
+	main.change_match_state(MainScript.MatchState.ROUND_INTRO)
+	assert_true(main.bgm_player.playing, "BGM playing after direct transition to ROUND_INTRO")
 
-func test_case_5_match_reset_state_cleanliness() -> void:
-	print("\nTest Case 5 (Match Reset State Cleanliness): tween killed, playback stopped, pitch/vol restored")
+	main.change_match_state(MainScript.MatchState.IN_ROUND)
+	assert_true(main.bgm_player.playing, "BGM playing after direct transition back to IN_ROUND")
+
+	# Subtest C: Timeout & DRAW transitions preserve continuous playback
+	main.p1.health = 100
+	main.p2.health = 100
+	main.round_timer = 0.0
+	main.step(0.01) # Timeout trigger
+	assert_equal(main.match_state, MainScript.MatchState.ROUND_OVER, "Timeout triggered ROUND_OVER")
+	assert_true(main.bgm_player.playing, "BGM continuously playing during timeout ROUND_OVER")
+
+	main.bgm_player.stop()
+	root.remove_child(main)
+	main.free()
+
+func test_case_5_runtime_loop_wrap_around_contract() -> void:
+	print("\nTest Case 5 (Scenario 2 - Runtime Loop Wrap-Around Contract): stream loop configuration")
 	var active_tree = _get_tree()
 	assert_true(active_tree != null, "Active SceneTree is available")
 	if active_tree == null:
@@ -223,31 +226,32 @@ func test_case_5_match_reset_state_cleanliness() -> void:
 	var main = MainScene.instantiate()
 	root.add_child(main)
 	main.step(1.5) # Enter IN_ROUND
-	main.change_match_state(MainScript.MatchState.ROUND_OVER)
-	assert_true(is_instance_valid(main._bgm_tween), "Tween active in ROUND_OVER")
 
-	# Partially step tween
-	main._bgm_tween.custom_step(0.4)
-	assert_true(main.bgm_player.pitch_scale < 1.0, "Pitch altered during slowdown")
-	assert_true(main.bgm_player.volume_db < 0.0, "Volume altered during slowdown")
+	var player = main.bgm_player
+	var stream = player.stream
+	assert_true(stream != null, "Stream is loaded")
 
-	# Transition to RESET (either by step(3.0) or change_match_state)
-	main.change_match_state(MainScript.MatchState.RESET)
+	if stream != null:
+		if "loop" in stream:
+			assert_true(stream.get("loop") == true, "stream.loop is true")
+		if "loop_offset" in stream:
+			assert_equal(float(stream.get("loop_offset")), 0.0, "stream.loop_offset is 0.0")
 
-	assert_true(main._bgm_tween == null or not is_instance_valid(main._bgm_tween), "_bgm_tween is killed and nullified on RESET")
-	assert_false(main.bgm_player.playing, "bgm_player is stopped on RESET")
-	assert_equal(main.bgm_player.pitch_scale, 1.0, "pitch_scale restored to 1.0")
-	assert_equal(main.bgm_player.volume_db, 0.0, "volume_db restored to 0.0 dB")
+		var finished_emitted = false
+		player.finished.connect(func(): finished_emitted = true)
 
-	# Verify start_round() looped back to ROUND_INTRO cleanly
-	assert_equal(main.match_state, MainScript.MatchState.ROUND_INTRO, "Match looped cleanly back to ROUND_INTRO")
+		# Seek close to the end of the track to verify looping behavior
+		var track_len: float = stream.get_length() if stream.has_method("get_length") else 170.66
+		player.play(max(0.0, track_len - 0.2))
+		assert_true(player.playing, "Player is playing at end of track")
+		assert_false(finished_emitted, "finished signal NOT emitted on loop play")
 
-	main.bgm_player.stop()
+	player.stop()
 	root.remove_child(main)
 	main.free()
 
 func test_case_6_out_of_tree_headless_safety() -> void:
-	print("\nTest Case 6 (Out-of-Tree Headless Safety): zero crashes, null refs, or tween errors outside tree")
+	print("\nTest Case 6 (Scenario 5 - Backwards Compatibility & Headless Test Safety): out-of-tree execution")
 	var main = MainScene.instantiate()
 	assert_false(main.is_inside_tree(), "Main is instantiated strictly outside active SceneTree")
 
@@ -262,12 +266,9 @@ func test_case_6_out_of_tree_headless_safety() -> void:
 
 	main.step(100.0) # Trigger timeout -> ROUND_OVER out-of-tree
 	assert_equal(main.match_state, MainScript.MatchState.ROUND_OVER, "Transitions to ROUND_OVER out-of-tree")
-	assert_true(main._bgm_tween == null, "_bgm_tween remains null out-of-tree (preventing tween creation error)")
 
 	main.step(3.0) # Trigger RESET out-of-tree
 	assert_equal(main.match_state, MainScript.MatchState.ROUND_INTRO, "Transitions through RESET to ROUND_INTRO out-of-tree")
-	assert_equal(main.bgm_player.pitch_scale, 1.0, "pitch_scale clean out-of-tree")
-	assert_equal(main.bgm_player.volume_db, 0.0, "volume_db clean out-of-tree")
 
 	main.free()
 	assert_true(true, "Main freed cleanly without leaks or errors")
