@@ -21,7 +21,8 @@ var fire_accumulator: float = 0.0
 func step(delta: float) -> void:
 	var left_active: bool = move_input < -0.1 or Input.is_action_pressed("p1_left") or Input.is_action_pressed("p2_left")
 	var right_active: bool = move_input > 0.1 or Input.is_action_pressed("p1_right") or Input.is_action_pressed("p2_right")
-	var effective_fire: bool = fire_held or Input.is_action_pressed("p1_punch")
+	var mc_fire_active: bool = Input.is_action_pressed("mc_fire") if InputMap.has_action("mc_fire") else false
+	var effective_fire: bool = fire_held or Input.is_action_pressed("p1_punch") or mc_fire_active or Input.is_key_pressed(KEY_SPACE)
 
 	var dir: float = 0.0
 	if left_active:

@@ -76,6 +76,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_5_giant_boss_assault_and_victory()
 	test_scenario_5b_end_to_end_winnability()
 	test_scenario_6_enemy_breach_defeat_priority_and_reset()
+	test_scenario_7_controls_discoverability_steering_and_space_fire()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -448,3 +449,161 @@ func test_scenario_6_enemy_breach_defeat_priority_and_reset() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
+	print("\nScenario 7: Controls Discoverability, Steering (A/D/Arrows), Space Firing & Regression Safety")
+	var main = MobControlMainScene.instantiate()
+	var active_tree = _get_tree()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# 1. Discoverability Contract: Controls hint label presence & visibility
+	assert_true(main.controls_hint != null, "ControlsHint label exists in MobControlMain")
+	if main.controls_hint != null:
+		assert_true(main.controls_hint.visible, "ControlsHint is visible on screen")
+		assert_true(main.controls_hint.text.contains("A/D or ARROWS: STEER"), "ControlsHint explains steering")
+		assert_true(main.controls_hint.text.contains("HOLD J or SPACE: FIRE"), "ControlsHint explains firing")
+		assert_true(main.controls_hint.text.contains("ESC: MENU"), "ControlsHint explains returning to menu")
+
+	var cannon = main.cannon
+	assert_true(cannon != null, "Cannon exists for controls testing")
+
+	# 2. AC1: Left steering via p1_left (A) and p2_left (Left Arrow)
+	cannon.reset()
+	Input.action_press("p1_left")
+	cannon.step(1.0 / 60.0)
+	Input.action_release("p1_left")
+	assert_true(cannon.position.x < 0.0, "p1_left steers cannon horizontally left")
+
+	cannon.reset()
+	Input.action_press("p1_left")
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	Input.action_release("p1_left")
+	assert_true(cannon.position.x <= -4.99 and cannon.position.x >= -5.0, "p1_left clamped firmly at min_x = -5.0")
+
+	cannon.reset()
+	Input.action_press("p2_left")
+	cannon.step(1.0 / 60.0)
+	Input.action_release("p2_left")
+	assert_true(cannon.position.x < 0.0, "p2_left steers cannon horizontally left")
+
+	cannon.reset()
+	Input.action_press("p2_left")
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	Input.action_release("p2_left")
+	assert_true(cannon.position.x <= -4.99 and cannon.position.x >= -5.0, "p2_left clamped firmly at min_x = -5.0")
+
+	# 3. AC2: Right steering via p1_right (D) and p2_right (Right Arrow)
+	cannon.reset()
+	Input.action_press("p1_right")
+	cannon.step(1.0 / 60.0)
+	Input.action_release("p1_right")
+	assert_true(cannon.position.x > 0.0, "p1_right steers cannon horizontally right")
+
+	cannon.reset()
+	Input.action_press("p1_right")
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	Input.action_release("p1_right")
+	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "p1_right clamped firmly at max_x = +5.0")
+
+	cannon.reset()
+	Input.action_press("p2_right")
+	cannon.step(1.0 / 60.0)
+	Input.action_release("p2_right")
+	assert_true(cannon.position.x > 0.0, "p2_right steers cannon horizontally right")
+
+	cannon.reset()
+	Input.action_press("p2_right")
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	Input.action_release("p2_right")
+	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "p2_right clamped firmly at max_x = +5.0")
+
+	# 4. AC3: Continuous firing via J (p1_punch) and Space (mc_fire)
+	main.cleanup_all_mobs()
+	cannon.reset()
+
+	# Test J key (p1_punch)
+	Input.action_press("p1_punch")
+	for i in range(8):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 0, "No shot before 0.14s with p1_punch")
+	main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 1, "First shot fires at 0.15s with p1_punch")
+	Input.action_release("p1_punch")
+	main.step(1.0 / 60.0)
+	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when p1_punch released")
+
+	# Test Space key (mc_fire)
+	main.cleanup_all_mobs()
+	cannon.reset()
+	Input.action_press("mc_fire")
+	for i in range(8):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 0, "No shot before 0.14s with mc_fire")
+	main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 1, "First shot fires at 0.15s with mc_fire")
+	# Step through remaining frames for 1 full second (total 60 frames)
+	for i in range(51):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 7, "Exactly 7 mobs spawned after 1.0s of mc_fire")
+	Input.action_release("mc_fire")
+	main.step(1.0 / 60.0)
+	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when mc_fire released")
+
+	# Test P1-only fire constraint: p2_punch must NOT fire cannon
+	main.cleanup_all_mobs()
+	cannon.reset()
+	Input.action_press("p2_punch")
+	for i in range(30):
+		main.step(1.0 / 60.0)
+	Input.action_release("p2_punch")
+	assert_equal(main.get_live_blue_mobs_count(), 0, "p2_punch does not fire cannon (P1-only firing contract)")
+
+	# 5. AC4: Game State Transition & Restart Stability
+	main.state = MobControlMainScript.GameState.DEFEAT
+	var ev_r = InputEventKey.new()
+	ev_r.pressed = true
+	ev_r.keycode = KEY_R
+	main._unhandled_input(ev_r)
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Pressing R during DEFEAT resets state to PLAYING")
+	assert_equal(cannon.position, Vector3(0.0, 0.5, 9.0), "Cannon position restored to (0.0, 0.5, 9.0)")
+
+	# Verify steering responsive after reset
+	Input.action_press("p1_left")
+	cannon.step(1.0 / 60.0)
+	Input.action_release("p1_left")
+	assert_true(cannon.position.x < 0.0, "Cannon steering responsive after DEFEAT restart")
+
+	main.state = MobControlMainScript.GameState.VICTORY
+	main._unhandled_input(ev_r)
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Pressing R during VICTORY resets state to PLAYING")
+	assert_equal(cannon.position, Vector3(0.0, 0.5, 9.0), "Cannon position restored to (0.0, 0.5, 9.0)")
+
+	# 6. AC5: Return to Arcade Hub Menu
+	var return_called: Array = []
+	main.return_to_menu_requested.connect(func(): return_called.append(true))
+	var ev_esc = InputEventAction.new()
+	ev_esc.action = "ui_cancel"
+	ev_esc.pressed = true
+	main._unhandled_input(ev_esc)
+	assert_equal(return_called.size(), 1, "ESC key emits return_to_menu_requested")
+	assert_true(main._returning_to_menu, "_returning_to_menu set to true")
+
+	# 7. AC6: Zero regression on Retro Fighter 2D Input Contracts
+	var core_actions = [
+		"p1_left", "p1_right", "p1_up", "p1_down", "p1_punch", "p1_kick", "p1_block",
+		"p2_left", "p2_right", "p2_up", "p2_down", "p2_punch", "p2_kick", "p2_block",
+		"toggle_p2_dummy", "mc_fire"
+	]
+	for act in core_actions:
+		assert_true(InputMap.has_action(act), "Input action '%s' exists in InputMap" % act)
+
+	main.cleanup_all_mobs()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+

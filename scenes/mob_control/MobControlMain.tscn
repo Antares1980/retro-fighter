@@ -97,3 +97,24 @@ text = "DEFEAT!
 PRESS R TO RESTART OR ESC FOR MENU"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="ControlsHint" type="Label" parent="UI"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -180.0
+offset_top = -18.0
+offset_right = 180.0
+offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 0.75)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 10
+text = "A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU"
+horizontal_alignment = 1
+vertical_alignment = 1
+
