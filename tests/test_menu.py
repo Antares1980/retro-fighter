@@ -1,5 +1,4 @@
 import os
-import re
 import unittest
 
 class TestMenu(unittest.TestCase):
@@ -44,9 +43,9 @@ class TestMenu(unittest.TestCase):
         self.assertIn('node name="RetroFighterButton" type="Button"', self.menu_scene)
         self.assertIn('text = "1. RETRO FIGHTER"', self.menu_scene)
         self.assertIn('node name="ComingSoonButton" type="Button"', self.menu_scene)
-        self.assertIn('text = "2. COMING SOON"', self.menu_scene)
-        self.assertIn('disabled = true', self.menu_scene)
-        self.assertIn('focus_mode = 0', self.menu_scene)
+        self.assertIn('text = "2. MOB CONTROL 3D"', self.menu_scene)
+        self.assertNotIn('disabled = true', self.menu_scene)
+        self.assertIn('focus_mode = 2', self.menu_scene)
         self.assertIn('node name="QuitButton" type="Button"', self.menu_scene)
         self.assertIn('text = "3. QUIT"', self.menu_scene)
         self.assertIn('node name="BGMPlayer" type="AudioStreamPlayer"', self.menu_scene)
@@ -61,6 +60,8 @@ class TestMenu(unittest.TestCase):
         self.assertIn('var _is_transitioning: bool = false', self.menu_script)
         self.assertIn('func launch_game(', self.menu_script)
         self.assertIn('func quit_game(', self.menu_script)
+        self.assertIn('func _on_coming_soon_pressed(', self.menu_script)
+        self.assertIn('scenes/mob_control/MobControlMain.tscn', self.menu_script)
         self.assertIn('func _unhandled_input(', self.menu_script)
         self.assertIn('p1_down', self.menu_script)
         self.assertIn('p1_up', self.menu_script)

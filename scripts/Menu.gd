@@ -84,6 +84,8 @@ func _resolve_nodes() -> void:
 
 	if is_instance_valid(btn_retro_fighter) and not btn_retro_fighter.pressed.is_connected(_on_retro_fighter_pressed):
 		btn_retro_fighter.pressed.connect(_on_retro_fighter_pressed)
+	if is_instance_valid(btn_coming_soon) and not btn_coming_soon.pressed.is_connected(_on_coming_soon_pressed):
+		btn_coming_soon.pressed.connect(_on_coming_soon_pressed)
 	if is_instance_valid(btn_quit) and not btn_quit.pressed.is_connected(_on_quit_pressed):
 		btn_quit.pressed.connect(_on_quit_pressed)
 
@@ -104,25 +106,41 @@ func _unhandled_input(event: InputEvent) -> void:
 func _navigate_down() -> void:
 	_resolve_nodes()
 	if is_instance_valid(btn_retro_fighter) and btn_retro_fighter.has_focus():
-		if is_instance_valid(btn_quit):
+		if is_instance_valid(btn_coming_soon):
+			btn_coming_soon.grab_focus()
+		elif is_instance_valid(btn_quit):
 			btn_quit.grab_focus()
-	elif is_instance_valid(btn_quit) and btn_quit.has_focus():
-		if is_instance_valid(btn_retro_fighter):
-			btn_retro_fighter.grab_focus()
-	else:
+	elif is_instance_valid(btn_coming_soon) and btn_coming_soon.has_focus():
 		if is_instance_valid(btn_quit):
 			btn_quit.grab_focus()
 		elif is_instance_valid(btn_retro_fighter):
+			btn_retro_fighter.grab_focus()
+	elif is_instance_valid(btn_quit) and btn_quit.has_focus():
+		if is_instance_valid(btn_retro_fighter):
+			btn_retro_fighter.grab_focus()
+		elif is_instance_valid(btn_coming_soon):
+			btn_coming_soon.grab_focus()
+	else:
+		if is_instance_valid(btn_retro_fighter):
 			btn_retro_fighter.grab_focus()
 
 func _navigate_up() -> void:
 	_resolve_nodes()
 	if is_instance_valid(btn_quit) and btn_quit.has_focus():
+		if is_instance_valid(btn_coming_soon):
+			btn_coming_soon.grab_focus()
+		elif is_instance_valid(btn_retro_fighter):
+			btn_retro_fighter.grab_focus()
+	elif is_instance_valid(btn_coming_soon) and btn_coming_soon.has_focus():
 		if is_instance_valid(btn_retro_fighter):
 			btn_retro_fighter.grab_focus()
+		elif is_instance_valid(btn_quit):
+			btn_quit.grab_focus()
 	elif is_instance_valid(btn_retro_fighter) and btn_retro_fighter.has_focus():
 		if is_instance_valid(btn_quit):
 			btn_quit.grab_focus()
+		elif is_instance_valid(btn_coming_soon):
+			btn_coming_soon.grab_focus()
 	else:
 		if is_instance_valid(btn_retro_fighter):
 			btn_retro_fighter.grab_focus()
@@ -131,6 +149,8 @@ func _activate_focused_button() -> void:
 	_resolve_nodes()
 	if is_instance_valid(btn_quit) and btn_quit.has_focus():
 		_on_quit_pressed()
+	elif is_instance_valid(btn_coming_soon) and btn_coming_soon.has_focus():
+		_on_coming_soon_pressed()
 	elif is_instance_valid(btn_retro_fighter) and btn_retro_fighter.has_focus():
 		_on_retro_fighter_pressed()
 	else:
@@ -138,6 +158,9 @@ func _activate_focused_button() -> void:
 
 func _on_retro_fighter_pressed() -> void:
 	launch_game("res://scenes/Main.tscn")
+
+func _on_coming_soon_pressed() -> void:
+	launch_game("res://scenes/mob_control/MobControlMain.tscn")
 
 func launch_game(scene_path: String = "res://scenes/Main.tscn") -> void:
 	if _is_transitioning:

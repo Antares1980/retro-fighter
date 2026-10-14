@@ -52,20 +52,23 @@ theme_override_constants/separation = 8
 
 [node name="RetroFighterButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
-focus_neighbor_bottom = NodePath("../QuitButton")
-focus_next = NodePath("../QuitButton")
+focus_neighbor_bottom = NodePath("../ComingSoonButton")
+focus_next = NodePath("../ComingSoonButton")
 text = "1. RETRO FIGHTER"
 
 [node name="ComingSoonButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
-focus_mode = 0
-disabled = true
-text = "2. COMING SOON"
+focus_neighbor_top = NodePath("../RetroFighterButton")
+focus_previous = NodePath("../RetroFighterButton")
+focus_neighbor_bottom = NodePath("../QuitButton")
+focus_next = NodePath("../QuitButton")
+focus_mode = 2
+text = "2. MOB CONTROL 3D"
 
 [node name="QuitButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
-focus_neighbor_top = NodePath("../RetroFighterButton")
-focus_previous = NodePath("../RetroFighterButton")
+focus_neighbor_top = NodePath("../ComingSoonButton")
+focus_previous = NodePath("../ComingSoonButton")
 text = "3. QUIT"
 
 [node name="BGMPlayer" type="AudioStreamPlayer" parent="."]

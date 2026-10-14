@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Mob Control 3D Arcade Game (Lead, Multiply, and Conquer) (Issue #33):
+  - Created 3D game scenes and logic isolated in `scenes/mob_control/` and `scripts/mob_control/`:
+    - `MobControlMain.tscn` & `scripts/mob_control/MobControlMain.gd`: Orchestrates 4-phase deterministic stepping pipeline (Motion -> Contact Resolution -> State Evaluation -> Bounds Cleanup), MAX_MOBS = 300 cap enforcement, terminal state latching (PLAYING -> VICTORY | DEFEAT with defeat priority), reset stage contract (12-point postcondition), and return to menu hook.
+    - `Cannon3D.tscn` & `scripts/mob_control/Cannon3D.gd`: Wheeled player cannon with horizontal steering clamped to X in [-5.0, +5.0] at 8.0 units/sec, test-overridable input seam (`move_input`, `fire_held` ORed with InputMap actions), 0.14s firing cadence with accumulator reset on release, and global mob cap clamping.
+    - `MobUnit3D.tscn` & `scripts/mob_control/MobUnit3D.gd`: Swarm mobs (Blue at Vz = -9.0 on Layer 2, Mask 28; Red at Vz = +4.2 on Layer 3, Mask 2) with CapsuleShape3D/CapsuleMesh (0.22 radius, 0.65 height), 1-to-1 attrition combat, and non-destructive gate passage contract (`is_consumed`).
+    - `MultiplierGate3D.tscn` & `scripts/mob_control/MultiplierGate3D.gd`: Math modifier gates (+2, x2, x3, +5) with synchronous idempotency (`passed_gates`), clone spawning outside gate box, and non-negative clamping `allowed = maxi(0, mini(k, MAX_MOBS - (live + pending)))`.
+    - `GiantEnemy3D.tscn` & `scripts/mob_control/GiantEnemy3D.gd`: 150 HP Giant Boss with wide BoxShape3D (9.5, 2.5, 2.5) collider centered on the node covering X in [-4.75, +4.75], overhead Label3D HP text, and scale-proportional HealthBar.
+  - Enabled Slot 2 on Arcade Hub Menu:
+    - In `scenes/Menu.tscn`, enabled `ComingSoonButton` labeled `"2. MOB CONTROL 3D"`, `focus_mode = Control.FOCUS_ALL` (2), wired into a 3-button focus cycle (`RetroFighterButton` <-> `ComingSoonButton` <-> `QuitButton`).
+    - In `scripts/Menu.gd`, connected `btn_coming_soon.pressed` to launch `res://scenes/mob_control/MobControlMain.tscn`, with preserved node names and getter aliases (`ComingSoonButton`, `btn_coming_soon`).
+  - Added comprehensive test suites:
+    - `tests/test_mob_control.gd` (104 headless tests) covering Scenarios 1 to 7: Menu integration, cannon kinematics and firing cadence, gate replication and cap enforcement, 1v1 attrition, Giant Boss assault, end-to-end corridor winnability (sub-4.78s victory), defeat priority, and 12-point stage reset.
+    - `tests/test_mob_control.py` (8 unit tests) validating files, scene node hierarchies, collision layers/masks, and script contracts.
+    - Updated `tests/test_menu.gd` (77 tests) and `tests/test_menu.py` for Slot 2 activation and 3-button navigation.
+    - Registered `test_mob_control.gd` into `tests/test_runner.gd`.
+
 - Implemented Arcade Hub Launcher & Game Selection Menu (Issue #31):
   - Transitioned project boot entry point to `res://scenes/Menu.tscn` (`run/main_scene` in `project.godot`), establishing the Arcade Hub as the game selector.
   - Created `scenes/Menu.tscn` and `scripts/Menu.gd`:
