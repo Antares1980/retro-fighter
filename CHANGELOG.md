@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Resolved Arcade Hub startup viewport clipping and restored game selection visibility (Issue #35):
+  - Removed manual `offset_right = 384.0` and `offset_bottom = 224.0` from root `Menu` (`Control`) node in `scenes/Menu.tscn`, eliminating 768x448 layout boundary expansion.
+  - Restored full logical viewport containment (`Rect2(0, 0, 384, 224)`) and horizontal centering for `Title`, `RetroFighterButton`, `ComingSoonButton`, and `QuitButton` on any display or resolution.
+  - Enhanced automated test suites:
+    - Updated `tests/test_menu.gd` with automated headless layout containment checks verifying all menu elements are 100% enclosed within `Rect2(0, 0, 384, 224)` without overlapping, mouse selection triggers across all three buttons, and `ui_accept`/`p1_punch` activation.
+    - Updated `tests/test_menu.py` with unit tests enforcing absence of root offsets, presence of full-rect anchors, getter aliases, and viewport configuration invariants.
+
 ### Added
 - Implemented Mob Control 3D Arcade Game (Lead, Multiply, and Conquer) (Issue #33):
   - Created 3D game scenes and logic isolated in `scenes/mob_control/` and `scripts/mob_control/`:

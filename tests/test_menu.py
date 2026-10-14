@@ -39,6 +39,13 @@ class TestMenu(unittest.TestCase):
     def test_menu_scene_structure(self):
         self.assertIn('node name="Menu" type="Control"', self.menu_scene)
         self.assertIn('res://scripts/Menu.gd', self.menu_scene)
+        self.assertIn('custom_minimum_size = Vector2(384, 224)', self.menu_scene)
+        self.assertIn('anchor_right = 1.0', self.menu_scene)
+        self.assertIn('anchor_bottom = 1.0', self.menu_scene)
+        # AC1 Root Cause Fix: offset_right and offset_bottom must NOT be set on root Menu node
+        root_section = self.menu_scene.split('[node name="Background"')[0]
+        self.assertNotIn("offset_right", root_section)
+        self.assertNotIn("offset_bottom", root_section)
         self.assertIn('node name="VBoxContainer" type="VBoxContainer"', self.menu_scene)
         self.assertIn('node name="RetroFighterButton" type="Button"', self.menu_scene)
         self.assertIn('text = "1. RETRO FIGHTER"', self.menu_scene)
@@ -66,6 +73,18 @@ class TestMenu(unittest.TestCase):
         self.assertIn('p1_down', self.menu_script)
         self.assertIn('p1_up', self.menu_script)
         self.assertIn('p1_punch', self.menu_script)
+        # AC3: Node alias getters contract
+        self.assertIn('var RetroFighterButton: Button:', self.menu_script)
+        self.assertIn('var ComingSoonButton: Button:', self.menu_script)
+        self.assertIn('var QuitButton: Button:', self.menu_script)
+        self.assertIn('var BGMPlayer: AudioStreamPlayer:', self.menu_script)
+
+    def test_viewport_and_stretch_settings(self):
+        # AC4: Viewport display configuration must remain 384x224 viewport keep
+        self.assertRegex(self.project_godot, r'window/size/viewport_width\s*=\s*384')
+        self.assertRegex(self.project_godot, r'window/size/viewport_height\s*=\s*224')
+        self.assertRegex(self.project_godot, r'window/stretch/mode\s*=\s*"viewport"')
+        self.assertRegex(self.project_godot, r'window/stretch/aspect\s*=\s*"keep"')
 
     def test_main_script_return_hook(self):
         self.assertIn('signal return_to_menu_requested', self.main_script)

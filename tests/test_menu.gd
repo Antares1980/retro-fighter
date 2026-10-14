@@ -96,6 +96,11 @@ func test_scenario_1_default_boot_to_arcade_menu_hub() -> void:
 	assert_equal(btn_cs.text, "2. MOB CONTROL 3D", "Slot 2 text is '2. MOB CONTROL 3D'")
 	assert_equal(btn_q.text, "3. QUIT", "Option 3 text is '3. QUIT'")
 
+	assert_equal(ProjectSettings.get_setting("display/window/size/viewport_width"), 384, "display/window/size/viewport_width is 384")
+	assert_equal(ProjectSettings.get_setting("display/window/size/viewport_height"), 224, "display/window/size/viewport_height is 224")
+	assert_equal(ProjectSettings.get_setting("display/window/stretch/mode"), "viewport", "display/window/stretch/mode is viewport")
+	assert_equal(ProjectSettings.get_setting("display/window/stretch/aspect"), "keep", "display/window/stretch/aspect is keep")
+
 	assert_true(menu.has_node("BGMPlayer"), "Menu contains BGMPlayer node")
 	var bgm = menu.get_node("BGMPlayer") as AudioStreamPlayer
 	assert_true(bgm != null, "BGMPlayer is an AudioStreamPlayer")
@@ -105,12 +110,40 @@ func test_scenario_1_default_boot_to_arcade_menu_hub() -> void:
 	if bgm.stream != null:
 		assert_true(bgm.stream.resource_path.ends_with("stage_theme.ogg"), "BGMPlayer assigned stage_theme.ogg")
 
+	# Node aliases contract
+	assert_equal(menu.RetroFighterButton, btn_rf, "menu.RetroFighterButton alias matches node")
+	assert_equal(menu.ComingSoonButton, btn_cs, "menu.ComingSoonButton alias matches node")
+	assert_equal(menu.QuitButton, btn_q, "menu.QuitButton alias matches node")
+	assert_equal(menu.BGMPlayer, bgm, "menu.BGMPlayer alias matches node")
+
 	var active_tree = _get_tree()
 	if active_tree != null:
 		active_tree.root.add_child(menu)
 		assert_true(menu.is_inside_tree(), "Menu is added to scene tree")
 		assert_true(menu.bgm_player.playing, "BGMPlayer plays stage_theme.ogg when added to scene tree")
 		menu.bgm_player.stop()
+
+		var vbox = menu.get_node("VBoxContainer") as VBoxContainer
+		vbox.notification(Container.NOTIFICATION_SORT_CHILDREN)
+		var viewport_rect = Rect2(0, 0, 384, 224)
+		var title_node = menu.get_node("Title") as Control
+		var title_rect = title_node.get_global_rect()
+		var rf_rect = btn_rf.get_global_rect()
+		var cs_rect = btn_cs.get_global_rect()
+		var q_rect = btn_q.get_global_rect()
+
+		assert_true(viewport_rect.encloses(title_rect), "Title is fully enclosed in 384x224 logical viewport")
+		assert_true(viewport_rect.encloses(rf_rect), "RetroFighterButton is fully enclosed in 384x224 logical viewport")
+		assert_true(viewport_rect.encloses(cs_rect), "ComingSoonButton is fully enclosed in 384x224 logical viewport")
+		assert_true(viewport_rect.encloses(q_rect), "QuitButton is fully enclosed in 384x224 logical viewport")
+
+		assert_false(title_rect.intersects(rf_rect), "Title does not overlap RetroFighterButton")
+		assert_false(title_rect.intersects(cs_rect), "Title does not overlap ComingSoonButton")
+		assert_false(title_rect.intersects(q_rect), "Title does not overlap QuitButton")
+		assert_false(rf_rect.intersects(cs_rect), "RetroFighterButton does not overlap ComingSoonButton")
+		assert_false(rf_rect.intersects(q_rect), "RetroFighterButton does not overlap QuitButton")
+		assert_false(cs_rect.intersects(q_rect), "ComingSoonButton does not overlap QuitButton")
+
 		active_tree.root.remove_child(menu)
 
 	menu.free()
@@ -160,18 +193,43 @@ func test_scenario_2_launching_retro_fighter_from_menu() -> void:
 	active_tree.root.remove_child(menu2)
 	menu2.free()
 
-	# Subtest 2c: Selection via mouse click (pressed signal)
+	# Subtest 2c: Selection via mouse click (pressed signal) for all three buttons (AC2)
 	var menu3 = MenuScene.instantiate()
 	active_tree.root.add_child(menu3)
 	var emitted_click: Array = []
+	var quit_emitted: Array = []
 	menu3.game_selected.connect(func(path: String): emitted_click.append(path))
+	menu3.quit_requested.connect(func(): quit_emitted.append(true))
 
+	# Click RetroFighterButton
 	menu3.btn_retro_fighter.pressed.emit()
-	assert_equal(emitted_click.size(), 1, "Mouse click emits game_selected once")
+	assert_equal(emitted_click.size(), 1, "Mouse click on RetroFighterButton emits game_selected once")
 	if emitted_click.size() > 0:
 		assert_equal(emitted_click[0], "res://scenes/Main.tscn", "Mouse click emits game_selected('res://scenes/Main.tscn')")
 	active_tree.root.remove_child(menu3)
 	menu3.free()
+
+	# Click ComingSoonButton
+	var menu3_cs = MenuScene.instantiate()
+	active_tree.root.add_child(menu3_cs)
+	var emitted_click_cs: Array = []
+	menu3_cs.game_selected.connect(func(path: String): emitted_click_cs.append(path))
+	menu3_cs.btn_coming_soon.pressed.emit()
+	assert_equal(emitted_click_cs.size(), 1, "Mouse click on ComingSoonButton emits game_selected once")
+	if emitted_click_cs.size() > 0:
+		assert_equal(emitted_click_cs[0], "res://scenes/mob_control/MobControlMain.tscn", "Mouse click emits game_selected('res://scenes/mob_control/MobControlMain.tscn')")
+	active_tree.root.remove_child(menu3_cs)
+	menu3_cs.free()
+
+	# Click QuitButton
+	var menu3_q = MenuScene.instantiate()
+	active_tree.root.add_child(menu3_q)
+	var emitted_click_q: Array = []
+	menu3_q.quit_requested.connect(func(): emitted_click_q.append(true))
+	menu3_q.btn_quit.pressed.emit()
+	assert_equal(emitted_click_q.size(), 1, "Mouse click on QuitButton emits quit_requested once")
+	active_tree.root.remove_child(menu3_q)
+	menu3_q.free()
 
 	# Subtest 2d: Target Main.tscn initialization & BGM contract
 	var main = MainScene.instantiate()
@@ -325,12 +383,56 @@ func test_scenario_4_placeholder_slot_integrity_and_navigation() -> void:
 	ev_punch.pressed = true
 	menu._unhandled_input(ev_punch)
 
-	assert_equal(game_emitted.size(), 1, "ComingSoonButton activation emits game_selected once")
+	assert_equal(game_emitted.size(), 1, "ComingSoonButton activation via p1_punch emits game_selected once")
 	if game_emitted.size() > 0:
 		assert_equal(game_emitted[0], "res://scenes/mob_control/MobControlMain.tscn", "game_selected emitted with MobControlMain.tscn")
 
 	active_tree.root.remove_child(menu)
 	menu.free()
+
+	# Activating ComingSoonButton via ui_accept
+	var menu_cs_acc = MenuScene.instantiate()
+	active_tree.root.add_child(menu_cs_acc)
+	var emitted_cs_acc: Array = []
+	menu_cs_acc.game_selected.connect(func(p: String): emitted_cs_acc.append(p))
+	menu_cs_acc.ComingSoonButton.grab_focus()
+	var ev_cs_acc = InputEventAction.new()
+	ev_cs_acc.action = "ui_accept"
+	ev_cs_acc.pressed = true
+	menu_cs_acc._unhandled_input(ev_cs_acc)
+	assert_equal(emitted_cs_acc.size(), 1, "ComingSoonButton activation via ui_accept emits game_selected once")
+	if emitted_cs_acc.size() > 0:
+		assert_equal(emitted_cs_acc[0], "res://scenes/mob_control/MobControlMain.tscn", "game_selected emitted with MobControlMain.tscn")
+	active_tree.root.remove_child(menu_cs_acc)
+	menu_cs_acc.free()
+
+	# Activating QuitButton via p1_punch and ui_accept
+	var menu_q_act = MenuScene.instantiate()
+	active_tree.root.add_child(menu_q_act)
+	var quit_act_emitted: Array = []
+	menu_q_act.quit_requested.connect(func(): quit_act_emitted.append(true))
+	menu_q_act.QuitButton.grab_focus()
+	assert_true(menu_q_act.QuitButton.has_focus(), "QuitButton has focus before activation")
+	var ev_q_punch = InputEventAction.new()
+	ev_q_punch.action = "p1_punch"
+	ev_q_punch.pressed = true
+	menu_q_act._unhandled_input(ev_q_punch)
+	assert_equal(quit_act_emitted.size(), 1, "QuitButton activation via p1_punch emits quit_requested once")
+	active_tree.root.remove_child(menu_q_act)
+	menu_q_act.free()
+
+	var menu_q_acc = MenuScene.instantiate()
+	active_tree.root.add_child(menu_q_acc)
+	var quit_acc_emitted: Array = []
+	menu_q_acc.quit_requested.connect(func(): quit_acc_emitted.append(true))
+	menu_q_acc.QuitButton.grab_focus()
+	var ev_q_acc = InputEventAction.new()
+	ev_q_acc.action = "ui_accept"
+	ev_q_acc.pressed = true
+	menu_q_acc._unhandled_input(ev_q_acc)
+	assert_equal(quit_acc_emitted.size(), 1, "QuitButton activation via ui_accept emits quit_requested once")
+	active_tree.root.remove_child(menu_q_acc)
+	menu_q_acc.free()
 
 func test_scenario_5_out_of_tree_execution_and_clean_bypass() -> void:
 	print("\nScenario 5: Out-of-tree Execution & Clean Bypass")
