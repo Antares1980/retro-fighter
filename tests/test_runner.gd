@@ -28,7 +28,10 @@ func _process(_delta: float) -> bool:
 	var test_menu = load("res://tests/test_menu.gd").new(self)
 	var success_menu: bool = test_menu.run_all(self)
 
-	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller and success_audio and success_audio_orchestrator and success_menu:
+	var test_mob_control = load("res://tests/test_mob_control.gd").new(self)
+	var success_mob_control: bool = test_mob_control.run_all(self)
+
+	if success_foundation and success_hitbox and success_fighter and success_camera and success_orchestrator and success_ai_controller and success_audio and success_audio_orchestrator and success_menu and success_mob_control:
 		print("\n[ALL TESTS PASSED SUCCESSFULLY]")
 		quit(0)
 	else:

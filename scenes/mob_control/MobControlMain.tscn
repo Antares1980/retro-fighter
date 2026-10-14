@@ -1,0 +1,99 @@
+[gd_scene load_steps=8 format=3 uid="uid://mobcontrolmain01"]
+
+[ext_resource type="Script" path="res://scripts/mob_control/MobControlMain.gd" id="1_main"]
+[ext_resource type="PackedScene" uid="uid://cannon3d00001" path="res://scenes/mob_control/Cannon3D.tscn" id="2_cannon"]
+[ext_resource type="PackedScene" uid="uid://giantenemy001" path="res://scenes/mob_control/GiantEnemy3D.tscn" id="3_giant"]
+[ext_resource type="PackedScene" uid="uid://multipliergate001" path="res://scenes/mob_control/MultiplierGate3D.tscn" id="4_gate"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_road"]
+albedo_color = Color(0.12, 0.12, 0.15, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_road"]
+material = SubResource("StandardMaterial3D_road")
+size = Vector3(12, 0.1, 42)
+
+[node name="MobControlMain" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.615661, 0.788011, 0, -0.788011, 0.615661, 0, 19, 15.5)
+fov = 45.0
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 20, 10)
+shadow_enabled = true
+
+[node name="Road" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, -9)
+mesh = SubResource("BoxMesh_road")
+
+[node name="Cannon" parent="." instance=ExtResource("2_cannon")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 9)
+
+[node name="GiantEnemy" parent="." instance=ExtResource("3_giant")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.25, -15)
+
+[node name="Gates" type="Node3D" parent="."]
+
+[node name="gate_left_1" parent="Gates" instance=ExtResource("4_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 1, -2)
+gate_id = "gate_left_1"
+operation = "+"
+value = 2
+
+[node name="gate_right_1" parent="Gates" instance=ExtResource("4_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 1, -2)
+gate_id = "gate_right_1"
+operation = "x"
+value = 2
+
+[node name="gate_left_2" parent="Gates" instance=ExtResource("4_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 1, -8)
+gate_id = "gate_left_2"
+operation = "x"
+value = 3
+
+[node name="gate_right_2" parent="Gates" instance=ExtResource("4_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 1, -8)
+gate_id = "gate_right_2"
+operation = "+"
+value = 5
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="VictoryBanner" type="Label" parent="UI"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -40.0
+offset_right = 150.0
+offset_bottom = 40.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "VICTORY!
+PRESS R TO RESTART OR ESC FOR MENU"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="DefeatBanner" type="Label" parent="UI"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -40.0
+offset_right = 150.0
+offset_bottom = 40.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "DEFEAT!
+PRESS R TO RESTART OR ESC FOR MENU"
+horizontal_alignment = 1
+vertical_alignment = 1

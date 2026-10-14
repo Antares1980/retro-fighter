@@ -93,7 +93,7 @@ func test_scenario_1_default_boot_to_arcade_menu_hub() -> void:
 	var btn_q = menu.get_node("VBoxContainer/QuitButton") as Button
 
 	assert_equal(btn_rf.text, "1. RETRO FIGHTER", "Option 1 text is '1. RETRO FIGHTER'")
-	assert_equal(btn_cs.text, "2. COMING SOON", "Slot 2 text is '2. COMING SOON'")
+	assert_equal(btn_cs.text, "2. MOB CONTROL 3D", "Slot 2 text is '2. MOB CONTROL 3D'")
 	assert_equal(btn_q.text, "3. QUIT", "Option 3 text is '3. QUIT'")
 
 	assert_true(menu.has_node("BGMPlayer"), "Menu contains BGMPlayer node")
@@ -240,7 +240,7 @@ func test_scenario_3_returning_from_retro_fighter_to_menu() -> void:
 		main.free()
 
 func test_scenario_4_placeholder_slot_integrity_and_navigation() -> void:
-	print("\nScenario 4: Placeholder Slot Integrity & Navigation")
+	print("\nScenario 4: Slot 2 Mob Control 3D Navigation & Activation")
 	var active_tree = _get_tree()
 	if active_tree == null:
 		printerr("SceneTree not available for Scenario 4")
@@ -249,9 +249,9 @@ func test_scenario_4_placeholder_slot_integrity_and_navigation() -> void:
 	var menu = MenuScene.instantiate()
 	active_tree.root.add_child(menu)
 
-	# Verify ComingSoon properties
-	assert_true(menu.ComingSoonButton.disabled, "ComingSoonButton.disabled == true")
-	assert_equal(menu.ComingSoonButton.focus_mode, Control.FOCUS_NONE, "ComingSoonButton.focus_mode == Control.FOCUS_NONE")
+	# Verify ComingSoon properties (now enabled for Mob Control 3D)
+	assert_false(menu.ComingSoonButton.disabled, "ComingSoonButton.disabled == false")
+	assert_equal(menu.ComingSoonButton.focus_mode, Control.FOCUS_ALL, "ComingSoonButton.focus_mode == Control.FOCUS_ALL")
 
 	# Initial focus on Retro Fighter
 	assert_true(menu.btn_retro_fighter.has_focus(), "Retro Fighter button has initial focus")
@@ -260,46 +260,74 @@ func test_scenario_4_placeholder_slot_integrity_and_navigation() -> void:
 	var ev_down = InputEventAction.new()
 	ev_down.action = "p1_down"
 	ev_down.pressed = true
-	menu._unhandled_input(ev_down)
 
-	assert_true(menu.btn_quit.has_focus(), "p1_down skips Coming Soon and focuses QuitButton")
-	assert_false(menu.ComingSoonButton.has_focus(), "ComingSoonButton is not focused on p1_down")
+	menu._unhandled_input(ev_down)
+	assert_true(menu.ComingSoonButton.has_focus(), "p1_down moves focus to ComingSoonButton")
+
+	menu._unhandled_input(ev_down)
+	assert_true(menu.btn_quit.has_focus(), "p1_down moves focus to QuitButton")
+
+	menu._unhandled_input(ev_down)
+	assert_true(menu.btn_retro_fighter.has_focus(), "p1_down cycles back to RetroFighterButton")
 
 	# Navigate up via p1_up
 	var ev_up = InputEventAction.new()
 	ev_up.action = "p1_up"
 	ev_up.pressed = true
-	menu._unhandled_input(ev_up)
 
+	menu._unhandled_input(ev_up)
+	assert_true(menu.btn_quit.has_focus(), "p1_up cycles back to QuitButton")
+
+	menu._unhandled_input(ev_up)
+	assert_true(menu.ComingSoonButton.has_focus(), "p1_up moves focus to ComingSoonButton")
+
+	menu._unhandled_input(ev_up)
 	assert_true(menu.btn_retro_fighter.has_focus(), "p1_up returns focus to RetroFighterButton")
-	assert_false(menu.ComingSoonButton.has_focus(), "ComingSoonButton is not focused on p1_up")
 
 	# Navigate down via ui_down
 	var ev_ui_down = InputEventAction.new()
 	ev_ui_down.action = "ui_down"
 	ev_ui_down.pressed = true
-	menu._unhandled_input(ev_ui_down)
 
-	assert_true(menu.btn_quit.has_focus(), "ui_down skips Coming Soon and focuses QuitButton")
-	assert_false(menu.ComingSoonButton.has_focus(), "ComingSoonButton is not focused on ui_down")
+	menu._unhandled_input(ev_ui_down)
+	assert_true(menu.ComingSoonButton.has_focus(), "ui_down moves focus to ComingSoonButton")
+
+	menu._unhandled_input(ev_ui_down)
+	assert_true(menu.btn_quit.has_focus(), "ui_down moves focus to QuitButton")
+
+	menu._unhandled_input(ev_ui_down)
+	assert_true(menu.btn_retro_fighter.has_focus(), "ui_down cycles back to RetroFighterButton")
 
 	# Navigate up via ui_up
 	var ev_ui_up = InputEventAction.new()
 	ev_ui_up.action = "ui_up"
 	ev_ui_up.pressed = true
+
 	menu._unhandled_input(ev_ui_up)
+	assert_true(menu.btn_quit.has_focus(), "ui_up cycles back to QuitButton")
 
+	menu._unhandled_input(ev_ui_up)
+	assert_true(menu.ComingSoonButton.has_focus(), "ui_up moves focus to ComingSoonButton")
+
+	menu._unhandled_input(ev_ui_up)
 	assert_true(menu.btn_retro_fighter.has_focus(), "ui_up returns focus to RetroFighterButton")
-	assert_false(menu.ComingSoonButton.has_focus(), "ComingSoonButton is not focused on ui_up")
 
-	# Attempting to click ComingSoonButton does nothing
+	# Activating ComingSoonButton emits game_selected with MobControlMain.tscn
 	var game_emitted: Array = []
-	var quit_emitted: Array = []
-	menu.game_selected.connect(func(_p): game_emitted.append(true))
-	menu.quit_requested.connect(func(): quit_emitted.append(true))
-	menu.ComingSoonButton.pressed.emit()
-	assert_equal(game_emitted.size(), 0, "ComingSoonButton pressed does not emit game_selected")
-	assert_equal(quit_emitted.size(), 0, "ComingSoonButton pressed does not emit quit_requested")
+	menu.game_selected.connect(func(p: String): game_emitted.append(p))
+
+	# Focus ComingSoonButton and trigger p1_punch
+	menu.ComingSoonButton.grab_focus()
+	assert_true(menu.ComingSoonButton.has_focus(), "ComingSoonButton has focus before activation")
+
+	var ev_punch = InputEventAction.new()
+	ev_punch.action = "p1_punch"
+	ev_punch.pressed = true
+	menu._unhandled_input(ev_punch)
+
+	assert_equal(game_emitted.size(), 1, "ComingSoonButton activation emits game_selected once")
+	if game_emitted.size() > 0:
+		assert_equal(game_emitted[0], "res://scenes/mob_control/MobControlMain.tscn", "game_selected emitted with MobControlMain.tscn")
 
 	active_tree.root.remove_child(menu)
 	menu.free()
