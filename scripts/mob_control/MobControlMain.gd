@@ -72,6 +72,14 @@ func step(delta: float) -> void:
 
 	_resolve_nodes()
 
+	# Pre-tick dead instance pruning
+	for i in range(blue_mobs.size() - 1, -1, -1):
+		if not is_instance_valid(blue_mobs[i]):
+			blue_mobs.remove_at(i)
+	for i in range(red_mobs.size() - 1, -1, -1):
+		if not is_instance_valid(red_mobs[i]):
+			red_mobs.remove_at(i)
+
 	# --- Phase 1: Motion & Spawner ---
 	if is_instance_valid(cannon):
 		cannon.step(delta)
@@ -256,7 +264,7 @@ func _evaluate_game_state() -> void:
 func _cleanup_out_of_bounds_mobs() -> void:
 	var surviving_blue: Array[MobUnit3DScript] = []
 	for mob in blue_mobs:
-		if is_instance_valid(mob):
+		if is_live(mob):
 			if mob.global_position.z < -25.0:
 				mob.queue_free()
 			else:
@@ -265,15 +273,21 @@ func _cleanup_out_of_bounds_mobs() -> void:
 
 	var surviving_red: Array[MobUnit3DScript] = []
 	for mob in red_mobs:
-		if is_instance_valid(mob):
+		if is_live(mob):
 			if mob.global_position.z > 12.0:
 				mob.queue_free()
 			else:
 				surviving_red.append(mob)
 	red_mobs = surviving_red
 
-func is_live(mob: MobUnit3DScript) -> bool:
-	return is_instance_valid(mob) and not mob.is_consumed and not mob.is_queued_for_deletion()
+func is_live(mob: Variant) -> bool:
+	if mob == null or not is_instance_valid(mob):
+		return false
+	if mob is Node and (mob as Node).is_queued_for_deletion():
+		return false
+	if "is_consumed" in mob and mob.is_consumed:
+		return false
+	return true
 
 func get_live_blue_mobs_count() -> int:
 	var count: int = 0

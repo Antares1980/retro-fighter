@@ -78,6 +78,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_6_enemy_breach_defeat_priority_and_reset()
 	test_scenario_7_controls_discoverability_steering_and_space_fire()
 	test_scenario_8_raw_key_fallback_and_scene_attachment()
+	test_scenario_9_freed_instance_safety_and_pruning()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -735,5 +736,112 @@ func test_scenario_8_raw_key_fallback_and_scene_attachment() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_9_freed_instance_safety_and_pruning() -> void:
+	print("\nScenario 9: Freed Instance Safety, Parameter Untyping, and Dead Reference Pruning (GWT 1-4)")
+	var main = MobControlMainScene.instantiate()
+	var active_tree = _get_tree()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "main.state initialized to PLAYING")
+
+	# --- GWT 1a: Handling Synchronously Freed Objects in is_live ---
+	var standalone_mob = MobUnit3DScene.instantiate()
+	standalone_mob.free()
+	assert_false(is_instance_valid(standalone_mob), "GWT 1a: is_instance_valid is false after mob.free()")
+	assert_false(main.is_live(standalone_mob), "GWT 1a: is_live returns false for synchronously freed mob without error")
+
+	# --- GWT 1b: Handling Queue-Freed Objects in is_live ---
+	var q_mob = MobUnit3DScene.instantiate()
+	main.add_child(q_mob)
+	q_mob.queue_free()
+	assert_true(q_mob.is_queued_for_deletion(), "GWT 1b: q_mob is queued for deletion")
+	assert_false(main.is_live(q_mob), "GWT 1b: is_live returns false for queue_freed mob")
+
+	# Clean up queue-freed object from tree
+	main.remove_child(q_mob)
+	q_mob.free()
+
+	# Also verify null and consumed safety
+	assert_false(main.is_live(null), "is_live returns false for null")
+	var consumed_mob = MobUnit3DScene.instantiate()
+	consumed_mob.is_consumed = true
+	assert_false(main.is_live(consumed_mob), "is_live returns false for is_consumed mob")
+	consumed_mob.free()
+
+	# --- GWT 2 & 4: Synchronous mob.free() In-List Regression Suite for blue_mobs ---
+	main.cleanup_all_mobs()
+	var b_freed = main._spawn_blue_mob(Vector3(0.0, 0.5, 0.0))
+	var b_survivor = main._spawn_blue_mob(Vector3(1.0, 0.5, 5.0))
+	assert_true(b_freed != null, "GWT 2: b_freed mob non-null")
+	assert_true(b_survivor != null, "GWT 2: b_survivor mob non-null")
+	assert_equal(main.blue_mobs.size(), 2, "GWT 2: blue_mobs has 2 mobs initially")
+
+	var b_survivor_initial_z = b_survivor.position.z
+
+	# Destroy b_freed synchronously while reference remains in blue_mobs
+	b_freed.free()
+	assert_false(is_instance_valid(b_freed), "GWT 2: is_instance_valid(b_freed) is false after synchronous free")
+	assert_equal(main.blue_mobs.size(), 2, "GWT 2: blue_mobs still holds 2 entries (including dead ref) before step()")
+
+	# Calling is_live and get_live_blue_mobs_count synchronously with dead instance in list
+	assert_false(main.is_live(b_freed), "GWT 2: is_live(b_freed) returns false on freed reference")
+	assert_equal(main.get_live_blue_mobs_count(), 1, "GWT 2: get_live_blue_mobs_count() returns 1 (ignores dead instance)")
+
+	# Calling step() synchronously must not raise SCRIPT ERROR and must prune the dead reference
+	var delta: float = 1.0 / 60.0
+	main.step(delta)
+
+	assert_equal(main.blue_mobs.size(), 1, "GWT 2: blue_mobs pruned freed reference to size 1")
+	assert_true(main.blue_mobs[0] == b_survivor, "GWT 2: surviving mob is the remaining element in blue_mobs")
+	assert_true(b_survivor.position.z != b_survivor_initial_z, "GWT 2: surviving blue mob position.z changed")
+	assert_equal(b_survivor.position.z, b_survivor_initial_z + MobControlMainScript.BLUE_SPEED * delta, "GWT 2: surviving blue mob moved by BLUE_SPEED * delta")
+
+	# --- GWT 2 & 4: Synchronous mob.free() In-List Regression Suite for red_mobs ---
+	main.cleanup_all_mobs()
+	var r_freed = main._spawn_red_mob()
+	var r_survivor = main._spawn_red_mob()
+	assert_true(r_freed != null, "GWT 4: r_freed mob non-null")
+	assert_true(r_survivor != null, "GWT 4: r_survivor mob non-null")
+	assert_equal(main.red_mobs.size(), 2, "GWT 4: red_mobs has 2 mobs initially")
+
+	var r_survivor_initial_z = r_survivor.position.z
+
+	# Destroy r_freed synchronously while reference remains in red_mobs
+	r_freed.free()
+	assert_false(is_instance_valid(r_freed), "GWT 4: is_instance_valid(r_freed) is false after synchronous free")
+	assert_equal(main.red_mobs.size(), 2, "GWT 4: red_mobs still holds 2 entries (including dead ref) before step()")
+
+	# Calling is_live synchronously
+	assert_false(main.is_live(r_freed), "GWT 4: is_live(r_freed) returns false on freed red mob reference")
+
+	# Calling step() synchronously must not raise SCRIPT ERROR and must prune the dead reference
+	main.step(delta)
+
+	assert_equal(main.red_mobs.size(), 1, "GWT 4: red_mobs pruned freed reference to size 1")
+	assert_true(main.red_mobs[0] == r_survivor, "GWT 4: surviving mob is the remaining element in red_mobs")
+	assert_true(r_survivor.position.z != r_survivor_initial_z, "GWT 4: surviving red mob position.z changed")
+	assert_equal(r_survivor.position.z, r_survivor_initial_z + MobControlMainScript.RED_SPEED * delta, "GWT 4: surviving red mob moved by RED_SPEED * delta")
+
+	# Additional multi-element pruning verification: head, middle, tail
+	main.cleanup_all_mobs()
+	var mb1 = main._spawn_blue_mob(Vector3(0.0, 0.5, 0.0))
+	var mb2 = main._spawn_blue_mob(Vector3(1.0, 0.5, 1.0))
+	var mb3 = main._spawn_blue_mob(Vector3(2.0, 0.5, 2.0))
+	var mb2_initial_z = mb2.position.z
+	mb1.free()
+	mb3.free()
+	assert_equal(main.blue_mobs.size(), 3, "blue_mobs holds 3 entries before multi-prune step()")
+	main.step(delta)
+	assert_equal(main.blue_mobs.size(), 1, "blue_mobs pruned head and tail freed references to size 1")
+	assert_true(main.blue_mobs[0] == mb2, "surviving middle mob mb2 remains")
+	assert_equal(mb2.position.z, mb2_initial_z + MobControlMainScript.BLUE_SPEED * delta, "mb2 moved by BLUE_SPEED * delta")
+
+	main.cleanup_all_mobs()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
 
 
