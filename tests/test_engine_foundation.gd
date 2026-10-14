@@ -186,7 +186,7 @@ func test_input_event_matching() -> void:
 func test_main_scene_instantiation() -> void:
 	print("\nScenario: Main Scene Load and Instantiation (AC-11)")
 	var main_scene_path = ProjectSettings.get_setting("application/run/main_scene")
-	assert_equal(main_scene_path, "res://scenes/Main.tscn", "Main scene setting is res://scenes/Main.tscn")
+	assert_equal(main_scene_path, "res://scenes/Menu.tscn", "Main scene setting is res://scenes/Menu.tscn")
 	assert_true(ResourceLoader.exists(main_scene_path), "Main scene file exists")
 	var scene = load(main_scene_path) as PackedScene
 	assert_true(scene != null, "Main scene can be loaded as PackedScene")

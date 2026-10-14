@@ -10,6 +10,7 @@ const AIControllerScript = preload("res://scripts/AIController.gd")
 
 signal round_ended(winner_id: int, reason: String)
 signal match_state_changed(old_state: MatchState, new_state: MatchState)
+signal return_to_menu_requested
 
 enum MatchState {
 	ROUND_INTRO,
@@ -35,6 +36,7 @@ var state_timer: float = 0.0
 var last_winner_id: int = 0
 var last_reason: String = ""
 var ai_controller: Node = null
+var _returning_to_menu: bool = false
 
 @onready var p1: CharacterBody2D = $P1 if has_node("P1") else null
 @onready var p2: CharacterBody2D = $P2 if has_node("P2") else null
@@ -178,6 +180,26 @@ func _start_bgm_immediate() -> void:
 
 func _on_round_started() -> void:
 	_start_bgm_immediate()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		return_to_menu()
+
+func return_to_menu() -> void:
+	if _returning_to_menu:
+		return
+	_returning_to_menu = true
+
+	if get_viewport():
+		get_viewport().set_input_as_handled()
+
+	if is_instance_valid(bgm_player):
+		bgm_player.stop()
+
+	return_to_menu_requested.emit()
+
+	if is_inside_tree() and get_tree() != null and get_tree().current_scene == self:
+		get_tree().change_scene_to_file("res://scenes/Menu.tscn")
 
 func _physics_process(delta: float) -> void:
 	step(delta)

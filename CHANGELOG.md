@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Arcade Hub Launcher & Game Selection Menu (Issue #31):
+  - Transitioned project boot entry point to `res://scenes/Menu.tscn` (`run/main_scene` in `project.godot`), establishing the Arcade Hub as the game selector.
+  - Created `scenes/Menu.tscn` and `scripts/Menu.gd`:
+    - Root `Control` sized 384x224 with centered `VBoxContainer` containing:
+      - Option 1: `"1. RETRO FIGHTER"` (focusable, launches `Main.tscn`, emits `game_selected("res://scenes/Main.tscn")`).
+      - Slot 2: `"2. COMING SOON"` (disabled placeholder slot, `focus_mode = FOCUS_NONE`, skipped in navigation).
+      - Option 3: `"3. QUIT"` (focusable, emits `quit_requested()`, exits application).
+    - Added `BGMPlayer` with `stage_theme.ogg` routed to `"Music"` bus with `autoplay = false`, starting playback on entering scene tree.
+    - Implemented keyboard navigation via `p1_up` / `p1_down` and default `ui_up` / `ui_down`, and selection via `p1_punch`, `ui_accept`, or mouse click.
+    - Added guarded out-of-tree execution cleanly bypassing `change_scene_to_file` and `get_tree().quit()`.
+  - Updated `scripts/Main.gd`:
+    - Added `return_to_menu_requested` signal and one-shot `_returning_to_menu` guard.
+    - In `_unhandled_input`, handled `ui_cancel` (`ESC`) to stop `bgm_player`, mark input handled, emit `return_to_menu_requested`, and transition to `res://scenes/Menu.tscn` when running in-tree (`get_tree().current_scene == self`).
+  - Added test suites and updated contracts:
+    - Created `tests/test_menu.gd` (72 tests) validating initial focus, button navigation skipping placeholder, selection signals, out-of-tree headless bypass, and return to menu hook across all 4 match states (`ROUND_INTRO`, `IN_ROUND`, `ROUND_OVER`, `RESET`).
+    - Created `tests/test_menu.py` validating file existence, scene/script structural integrity, and project settings.
+    - Registered `test_menu.gd` into `tests/test_runner.gd` and pass gate.
+    - Updated `run/main_scene` assertions in `tests/test_project_godot.py:32`, `tests/test_engine_foundation.gd:189`, and `tests/test_stage_hud_orchestrator.gd:352-355` (with stage HUD test explicitly loading `Main.tscn`).
+
 - Implemented Immediate Game Audio Boot Playback & Engine Bus Hardening (Issue #29):
   - Added idempotent `_start_bgm_immediate()` helper in `scripts/Main.gd` guarded with `is_inside_tree()` and invoked directly from `_ready()`, eliminating 1.5-second initial dead silence during `ROUND_INTRO`.
   - Registered `buses/default_bus_layout="res://default_bus_layout.tres"` in `project.godot` under `[audio]` section for deterministic audio bus routing (`Music` -> `Master`, `SFX` -> `Master`).

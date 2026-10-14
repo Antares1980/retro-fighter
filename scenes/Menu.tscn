@@ -1,0 +1,74 @@
+[gd_scene load_steps=3 format=3 uid="uid://c7m3nu8hub123"]
+
+[ext_resource type="Script" path="res://scripts/Menu.gd" id="1_menu"]
+[ext_resource type="AudioStream" uid="uid://bl1g7r0tq1ogg" path="res://audio/music/stage_theme.ogg" id="2_audio"]
+
+[node name="Menu" type="Control"]
+custom_minimum_size = Vector2(384, 224)
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = 384.0
+offset_bottom = 224.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.08, 0.12, 1)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 24.0
+offset_bottom = 56.0
+grow_horizontal = 2
+text = "ARCADE HUB"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -90.0
+offset_top = -30.0
+offset_right = 90.0
+offset_bottom = 75.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="RetroFighterButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_bottom = NodePath("../QuitButton")
+focus_next = NodePath("../QuitButton")
+text = "1. RETRO FIGHTER"
+
+[node name="ComingSoonButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_mode = 0
+disabled = true
+text = "2. COMING SOON"
+
+[node name="QuitButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_top = NodePath("../RetroFighterButton")
+focus_previous = NodePath("../RetroFighterButton")
+text = "3. QUIT"
+
+[node name="BGMPlayer" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("2_audio")
+autoplay = false
+bus = &"Music"
