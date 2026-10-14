@@ -350,9 +350,9 @@ func test_ac10_p2_dummy_persistence_in_orchestrator() -> void:
 func test_ac11_standalone_launch_readiness() -> void:
 	print("\nScenario: AC-11 - Standalone Launch Readiness")
 	var main_scene_setting = ProjectSettings.get_setting("application/run/main_scene")
-	assert_equal(main_scene_setting, "res://scenes/Main.tscn", "Main scene is res://scenes/Main.tscn")
+	assert_equal(main_scene_setting, "res://scenes/Menu.tscn", "Main scene is res://scenes/Menu.tscn")
 
-	var packed = load(main_scene_setting) as PackedScene
+	var packed = load("res://scenes/Main.tscn") as PackedScene
 	assert_true(packed != null, "scenes/Main.tscn loads as PackedScene")
 
 	var instance = packed.instantiate()

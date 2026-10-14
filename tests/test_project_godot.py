@@ -29,7 +29,7 @@ class TestProjectGodot(unittest.TestCase):
         self.assertRegex(self.content, r'common/physics_ticks_per_second\s*=\s*60')
 
     def test_main_scene_path(self):
-        self.assertRegex(self.content, r'run/main_scene\s*=\s*"res://scenes/Main.tscn"')
+        self.assertRegex(self.content, r'run/main_scene\s*=\s*"res://scenes/Menu.tscn"')
 
     def test_physics_layers(self):
         self.assertRegex(self.content, r'2d_physics/layer_1\s*=\s*"WorldFloor"')
