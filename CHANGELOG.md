@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Restored Mob Control 3D cannon controls discoverability, steering, and continuous firing (Issue #37):
+  - Supported universal arcade `Space` key firing alongside `J` (`p1_punch`) in `scripts/mob_control/Cannon3D.gd` via dedicated `mc_fire` action in `project.godot` and `KEY_SPACE` check, strictly preserving P1-only firing contract and zero-regression isolation for Retro Fighter 2D bindings (`p1_*` / `p2_*`).
+  - Added persistent on-screen HUD controls hint in `scenes/mob_control/MobControlMain.tscn` (`"A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU"`) providing immediate in-game discoverability for steering, firing, and menu return.
+  - Enhanced automated test suites:
+    - Added Scenario 7 to `tests/test_mob_control.gd` verifying controls hint existence and visibility, dual-key steering (`A`/`Left Arrow` clamped to `min_x = -5.0`, `D`/`Right Arrow` clamped to `max_x = +5.0`), continuous firing cadence at 0.14s for both `J` and `Space`, fire accumulator reset on release, P1-only fire constraint (`p2_punch` rejection), state transition restart stability (pressing `R` during `DEFEAT` or `VICTORY`), and clean `ESC` return to menu.
+    - Updated `tests/test_mob_control.py` with unit tests enforcing HUD `ControlsHint` existence, `mc_fire` keycode 32 contract in `project.godot`, and script property bindings.
 - Resolved Arcade Hub startup viewport clipping and restored game selection visibility (Issue #35):
   - Removed manual `offset_right = 384.0` and `offset_bottom = 224.0` from root `Menu` (`Control`) node in `scenes/Menu.tscn`, eliminating 768x448 layout boundary expansion.
   - Restored full logical viewport containment (`Rect2(0, 0, 384, 224)`) and horizontal centering for `Title`, `RetroFighterButton`, `ComingSoonButton`, and `QuitButton` on any display or resolution.

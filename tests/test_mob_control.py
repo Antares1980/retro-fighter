@@ -76,6 +76,8 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('gate_right_2', self.main_scene)
         self.assertIn('VictoryBanner', self.main_scene)
         self.assertIn('DefeatBanner', self.main_scene)
+        self.assertIn('ControlsHint', self.main_scene)
+        self.assertIn('A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU', self.main_scene)
 
     def test_giant_scene_structure(self):
         self.assertIn('node name="GiantEnemy3D" type="Area3D"', self.giant_scene)
@@ -107,12 +109,14 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func reset_stage()', self.main_script)
         self.assertIn('func return_to_menu()', self.main_script)
         self.assertIn('signal return_to_menu_requested', self.main_script)
+        self.assertIn('controls_hint', self.main_script)
 
         self.assertIn('class_name Cannon3D', self.cannon_script)
         self.assertIn('var move_input: float', self.cannon_script)
         self.assertIn('var fire_held: bool', self.cannon_script)
         self.assertIn('const FIRE_INTERVAL: float = 0.14', self.cannon_script)
         self.assertIn('signal shoot_requested', self.cannon_script)
+        self.assertIn('mc_fire', self.cannon_script)
 
         self.assertIn('class_name MobUnit3D', self.mob_script)
         self.assertIn('var is_consumed: bool = false', self.mob_script)
@@ -126,9 +130,17 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func take_damage(', self.giant_script)
         self.assertIn('func reset(', self.giant_script)
 
+    def test_mc_fire_input_contract(self):
+        project_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "project.godot")
+        with open(project_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("mc_fire={", content)
+        self.assertRegex(content, r'mc_fire=\{[^}]*"physical_keycode":\s*32')
+
     def test_runner_registered(self):
         self.assertIn('tests/test_mob_control.gd', self.test_runner)
         self.assertIn('success_mob_control', self.test_runner)
 
 if __name__ == "__main__":
     unittest.main()
+

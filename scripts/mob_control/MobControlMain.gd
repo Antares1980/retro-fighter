@@ -34,6 +34,7 @@ const MobUnitScene = preload("res://scenes/mob_control/MobUnit3D.tscn")
 @onready var gates_container: Node3D = $Gates if has_node("Gates") else null
 @onready var victory_banner: Control = $UI/VictoryBanner if has_node("UI/VictoryBanner") else null
 @onready var defeat_banner: Control = $UI/DefeatBanner if has_node("UI/DefeatBanner") else null
+@onready var controls_hint: Label = $UI/ControlsHint if has_node("UI/ControlsHint") else null
 
 func _ready() -> void:
 	_resolve_nodes()
@@ -55,6 +56,8 @@ func _resolve_nodes() -> void:
 		victory_banner = get_node_or_null("UI/VictoryBanner")
 	if defeat_banner == null:
 		defeat_banner = get_node_or_null("UI/DefeatBanner")
+	if controls_hint == null:
+		controls_hint = get_node_or_null("UI/ControlsHint")
 
 func _physics_process(delta: float) -> void:
 	step(delta)
