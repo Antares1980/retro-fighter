@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Fixed GDScript call-boundary type errors on freed instances and mid-combat runtime crashes in Mob Control 3D (Issue #41):
+  - In `scripts/mob_control/MobControlMain.gd`, changed `func is_live(mob: Variant) -> bool` to accept `Variant` instead of statically typed `MobUnit3DScript`, preventing GDScript call-boundary type crashes (`Invalid type in function 'is_live' ... (previously freed) is not a subclass of the expected argument class`) when inspecting synchronously freed (`free()`) or deletion-pending (`queue_free()`) mob instances.
+  - Implemented pre-tick dead instance pruning in `step(delta)` immediately before Phase 1 motion, removing invalid references from `blue_mobs` and `red_mobs` via in-place reverse index iteration (`remove_at(i)`).
+  - Updated Phase 4 `_cleanup_out_of_bounds_mobs()` to check `is_live(mob)`, immediately excluding consumed and queued-for-deletion mobs from tracking arrays.
+  - Enhanced automated test suites:
+    - Added Scenario 9 to `tests/test_mob_control.gd` verifying `is_live` handling of synchronously freed (`mob.free()`), queue-freed (`mob.queue_free()`), `null`, and consumed objects, in-list regression suites ensuring `is_live` returns `false`, `get_live_blue_mobs_count` ignores dead instances, `step()` safely prunes dead instances without raising `SCRIPT ERROR`, and surviving mobs advance normally.
+    - Updated `tests/test_mob_control.py` verifying the untyped `is_live(mob: Variant)` signature, pruning calls, and test registration.
 - Eliminated cold-parse error detachment, added bounded key fallback, and verified single-phase loop for Mob Control 3D (Issue #39):
   - In `scripts/mob_control/MobControlMain.gd`, resolved cold cache-free parse error (`Could not find type`) by replacing direct bare-name class dependencies with non-colliding `preload` script constants (`Cannon3DScript`, `GiantEnemy3DScript`, `MultiplierGate3DScript`, `MobUnit3DScript`) across variable annotations, typed arrays, `as` casts, and `is` checks, allowing reliable root script attachment without pre-existing `.godot/global_script_class_cache.cfg`.
   - In `scripts/mob_control/Cannon3D.gd`, implemented bounded non-additive raw key fallback by `or`-combining physical/raw key polling (`KEY_A`, `KEY_D`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_J`, `KEY_SPACE`) into steering and fire booleans while preserving `speed = 8.0`, `FIRE_INTERVAL = 0.14`, P1-only firing, and without modifying InputMap or 2D fighter bindings.

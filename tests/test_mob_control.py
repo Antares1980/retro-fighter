@@ -47,6 +47,8 @@ class TestMobControl(unittest.TestCase):
             cls.giant_script = f.read()
         with open(cls.test_runner_path, "r", encoding="utf-8") as f:
             cls.test_runner = f.read()
+        with open(cls.test_gd_path, "r", encoding="utf-8") as f:
+            cls.test_gd = f.read()
 
     def test_files_exist(self):
         self.assertTrue(os.path.isfile(self.main_scene_path), "MobControlMain.tscn must exist")
@@ -222,6 +224,14 @@ class TestMobControl(unittest.TestCase):
         self.assertIn("state = GameState.VICTORY", self.main_script)
         self.assertNotIn("Yellow Base", self.main_script)
         self.assertNotIn("siege", self.main_script.lower())
+
+    def test_is_live_untyped_and_pruning_contract(self):
+        """Issue #41 / GWT 1-4: Verify untyped is_live(mob: Variant), pre-tick pruning, and regression tests."""
+        self.assertIn("func is_live(mob: Variant) -> bool:", self.main_script)
+        self.assertNotIn("func is_live(mob: MobUnit3D", self.main_script)
+        self.assertIn("blue_mobs.remove_at(i)", self.main_script)
+        self.assertIn("red_mobs.remove_at(i)", self.main_script)
+        self.assertIn("test_scenario_9_freed_instance_safety_and_pruning", self.test_gd)
 
 if __name__ == "__main__":
     unittest.main()
