@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Eliminated cold-parse error detachment, added bounded key fallback, and verified single-phase loop for Mob Control 3D (Issue #39):
+  - In `scripts/mob_control/MobControlMain.gd`, resolved cold cache-free parse error (`Could not find type`) by replacing direct bare-name class dependencies with non-colliding `preload` script constants (`Cannon3DScript`, `GiantEnemy3DScript`, `MultiplierGate3DScript`, `MobUnit3DScript`) across variable annotations, typed arrays, `as` casts, and `is` checks, allowing reliable root script attachment without pre-existing `.godot/global_script_class_cache.cfg`.
+  - In `scripts/mob_control/Cannon3D.gd`, implemented bounded non-additive raw key fallback by `or`-combining physical/raw key polling (`KEY_A`, `KEY_D`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_J`, `KEY_SPACE`) into steering and fire booleans while preserving `speed = 8.0`, `FIRE_INTERVAL = 0.14`, P1-only firing, and without modifying InputMap or 2D fighter bindings.
+  - Preserved complete single-phase loop contract with `GiantEnemy3D` (`hp = 150 -> VICTORY`) and `z >= 9.0 -> DEFEAT` (same-tick `DEFEAT` priority over `VICTORY`) without non-existent entity regressions.
+  - Enhanced automated test suites:
+    - Added Scenario 8 to `tests/test_mob_control.gd` verifying scene instantiation and script attachment smoke test (GWT 11), raw key steering (`KEY_A`, `KEY_LEFT`, `KEY_D`, `KEY_RIGHT` with clamping at [-5.0, +5.0]), and raw key firing (`KEY_J`, `KEY_SPACE` with 0.14s cadence and release reset).
+    - Expanded `tests/test_mob_control.py` with static contracts and headless check-only verification (GWT 1) confirming clean compilation when global class cache is absent, raw key fallback assertions, and single-phase loop integrity.
 - Restored Mob Control 3D cannon controls discoverability, steering, and continuous firing (Issue #37):
   - Supported universal arcade `Space` key firing alongside `J` (`p1_punch`) in `scripts/mob_control/Cannon3D.gd` via dedicated `mc_fire` action in `project.godot` and `KEY_SPACE` check, strictly preserving P1-only firing contract and zero-regression isolation for Retro Fighter 2D bindings (`p1_*` / `p2_*`).
   - Added persistent on-screen HUD controls hint in `scenes/mob_control/MobControlMain.tscn` (`"A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU"`) providing immediate in-game discoverability for steering, firing, and menu return.

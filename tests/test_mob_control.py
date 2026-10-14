@@ -141,6 +141,88 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('tests/test_mob_control.gd', self.test_runner)
         self.assertIn('success_mob_control', self.test_runner)
 
+    @staticmethod
+    def _find_godot_binary():
+        import shutil
+        for name in ["godot", "godot.exe", "godot4", "godot4.exe"]:
+            cmd = shutil.which(name)
+            if cmd:
+                return cmd
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if local_app_data:
+            winget_dir = os.path.join(local_app_data, "Microsoft", "WinGet", "Packages")
+            if os.path.isdir(winget_dir):
+                for root, _, files in os.walk(winget_dir):
+                    for f in files:
+                        if "godot" in f.lower() and f.endswith(".exe") and "console" in f.lower():
+                            return os.path.join(root, f)
+        return None
+
+    def test_cold_cache_script_compilation_contract(self):
+        """GWT 1: Ensure MobControlMain.gd has no bare class dependencies and compiles cold without global class cache."""
+        import re
+        import subprocess
+
+        # 1. Preload constants present
+        self.assertIn('const Cannon3DScript = preload("res://scripts/mob_control/Cannon3D.gd")', self.main_script)
+        self.assertIn('const GiantEnemy3DScript = preload("res://scripts/mob_control/GiantEnemy3D.gd")', self.main_script)
+        self.assertIn('const MultiplierGate3DScript = preload("res://scripts/mob_control/MultiplierGate3D.gd")', self.main_script)
+        self.assertIn('const MobUnit3DScript = preload("res://scripts/mob_control/MobUnit3D.gd")', self.main_script)
+
+        # 2. No bare class name references in MobControlMain.gd
+        bare_patterns = [
+            r'Array\[\s*(MobUnit3D|Cannon3D|GiantEnemy3D|MultiplierGate3D)\s*\]',
+            r':\s*(MobUnit3D|Cannon3D|GiantEnemy3D|MultiplierGate3D)\b',
+            r'as\s+(MobUnit3D|Cannon3D|GiantEnemy3D|MultiplierGate3D)\b',
+            r'is\s+(MobUnit3D|Cannon3D|GiantEnemy3D|MultiplierGate3D)\b',
+            r'->\s*(MobUnit3D|Cannon3D|GiantEnemy3D|MultiplierGate3D)\b',
+        ]
+        for pat in bare_patterns:
+            matches = re.findall(pat, self.main_script)
+            self.assertEqual(matches, [], f"Bare class name found matching {pat}: {matches}")
+
+        # 3. Dynamic cold-compilation check if Godot binary is available
+        godot_bin = self._find_godot_binary()
+        if godot_bin:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cache_file = os.path.join(base_dir, ".godot", "global_script_class_cache.cfg")
+            bak_file = cache_file + ".bak_test"
+            cache_existed = os.path.exists(cache_file)
+            try:
+                if cache_existed:
+                    os.rename(cache_file, bak_file)
+                proc = subprocess.run(
+                    [godot_bin, "--headless", "--check-only", "--script", "res://scripts/mob_control/MobControlMain.gd"],
+                    cwd=base_dir,
+                    capture_output=True,
+                    text=True
+                )
+                self.assertEqual(proc.returncode, 0, f"check-only failed: {proc.stderr or proc.stdout}")
+                self.assertNotIn("Parse Error", proc.stderr + proc.stdout)
+                self.assertNotIn("Could not find type", proc.stderr + proc.stdout)
+            finally:
+                if cache_existed and os.path.exists(bak_file):
+                    os.rename(bak_file, cache_file)
+
+    def test_cannon_raw_key_fallbacks(self):
+        """GWT 2, 3, 4: Cannon3D polls raw keys KEY_A, KEY_D, KEY_LEFT, KEY_RIGHT, KEY_J, KEY_SPACE, but not KEY_ESCAPE."""
+        self.assertIn("KEY_A", self.cannon_script)
+        self.assertIn("KEY_D", self.cannon_script)
+        self.assertIn("KEY_LEFT", self.cannon_script)
+        self.assertIn("KEY_RIGHT", self.cannon_script)
+        self.assertIn("KEY_J", self.cannon_script)
+        self.assertIn("KEY_SPACE", self.cannon_script)
+        self.assertNotIn("KEY_ESCAPE", self.cannon_script)
+
+    def test_single_phase_loop_preservation(self):
+        """GWT 7, 8: Verify single-phase loop integrity (Giant hp 150, z >= 9.0 defeat) without non-existent entities."""
+        self.assertIn("var hp: int = 150", self.giant_script)
+        self.assertIn("global_position.z >= 9.0", self.main_script)
+        self.assertIn("state = GameState.DEFEAT", self.main_script)
+        self.assertIn("state = GameState.VICTORY", self.main_script)
+        self.assertNotIn("Yellow Base", self.main_script)
+        self.assertNotIn("siege", self.main_script.lower())
+
 if __name__ == "__main__":
     unittest.main()
 

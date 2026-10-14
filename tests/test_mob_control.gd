@@ -77,6 +77,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_5b_end_to_end_winnability()
 	test_scenario_6_enemy_breach_defeat_priority_and_reset()
 	test_scenario_7_controls_discoverability_steering_and_space_fire()
+	test_scenario_8_raw_key_fallback_and_scene_attachment()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -606,4 +607,133 @@ func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_8_raw_key_fallback_and_scene_attachment() -> void:
+	print("\nScenario 8: Raw Key Fallbacks & Scene Instantiation Attachment Smoke Test (GWT 1-11)")
+	var active_tree = _get_tree()
+
+	# GWT 11: Scene Instantiation & Script Attachment Smoke Test
+	var main = MobControlMainScene.instantiate()
+	assert_true(main.get_script() != null, "MobControlMain has non-null script attached")
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	assert_true(main.cannon != null, "MobControlMain _ready() initialized cannon != null")
+	assert_true(main.giant_enemy != null, "MobControlMain _ready() initialized giant_enemy != null")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "MobControlMain state initialized to PLAYING")
+
+	main.cannon.reset()
+	var start_x = main.cannon.position.x
+	Input.action_press("p1_right")
+	main.step(1.0 / 60.0)
+	Input.action_release("p1_right")
+	assert_true(main.cannon.position.x > start_x, "Calling step() with p1_right moves cannon horizontally +x")
+
+	# GWT 2: Left Steering & Boundary Clamping via KEY_A and KEY_LEFT
+	var cannon = main.cannon
+	cannon.reset()
+
+	var press_key = func(code: Key):
+		var ev = InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		Input.flush_buffered_events()
+
+	var release_key = func(code: Key):
+		var ev = InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = false
+		Input.parse_input_event(ev)
+		Input.flush_buffered_events()
+
+	# Test KEY_A
+	cannon.reset()
+	press_key.call(KEY_A)
+	cannon.step(1.0 / 60.0)
+	release_key.call(KEY_A)
+	assert_true(cannon.position.x < 0.0, "Holding KEY_A steers cannon horizontally left")
+
+	cannon.reset()
+	press_key.call(KEY_A)
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	release_key.call(KEY_A)
+	assert_true(cannon.position.x <= -4.99 and cannon.position.x >= -5.0, "KEY_A clamped firmly at min_x = -5.0")
+
+	# Test KEY_LEFT
+	cannon.reset()
+	press_key.call(KEY_LEFT)
+	cannon.step(1.0 / 60.0)
+	release_key.call(KEY_LEFT)
+	assert_true(cannon.position.x < 0.0, "Holding KEY_LEFT steers cannon horizontally left")
+
+	cannon.reset()
+	press_key.call(KEY_LEFT)
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	release_key.call(KEY_LEFT)
+	assert_true(cannon.position.x <= -4.99 and cannon.position.x >= -5.0, "KEY_LEFT clamped firmly at min_x = -5.0")
+
+	# GWT 3: Right Steering & Boundary Clamping via KEY_D and KEY_RIGHT
+	# Test KEY_D
+	cannon.reset()
+	press_key.call(KEY_D)
+	cannon.step(1.0 / 60.0)
+	release_key.call(KEY_D)
+	assert_true(cannon.position.x > 0.0, "Holding KEY_D steers cannon horizontally right")
+
+	cannon.reset()
+	press_key.call(KEY_D)
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	release_key.call(KEY_D)
+	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "KEY_D clamped firmly at max_x = +5.0")
+
+	# Test KEY_RIGHT
+	cannon.reset()
+	press_key.call(KEY_RIGHT)
+	cannon.step(1.0 / 60.0)
+	release_key.call(KEY_RIGHT)
+	assert_true(cannon.position.x > 0.0, "Holding KEY_RIGHT steers cannon horizontally right")
+
+	cannon.reset()
+	press_key.call(KEY_RIGHT)
+	for i in range(60):
+		cannon.step(1.0 / 60.0)
+	release_key.call(KEY_RIGHT)
+	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "KEY_RIGHT clamped firmly at max_x = +5.0")
+
+	# GWT 4: Continuous Fire via KEY_J and KEY_SPACE & accumulator reset
+	main.cleanup_all_mobs()
+	cannon.reset()
+	press_key.call(KEY_J)
+	for i in range(8):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 0, "No shot before 0.14s with KEY_J")
+	main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 1, "First shot fires at 0.15s with KEY_J")
+	release_key.call(KEY_J)
+	main.step(1.0 / 60.0)
+	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when KEY_J released")
+
+	main.cleanup_all_mobs()
+	cannon.reset()
+	press_key.call(KEY_SPACE)
+	for i in range(8):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 0, "No shot before 0.14s with KEY_SPACE")
+	main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 1, "First shot fires at 0.15s with KEY_SPACE")
+	release_key.call(KEY_SPACE)
+	main.step(1.0 / 60.0)
+	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when KEY_SPACE released")
+
+	main.cleanup_all_mobs()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
 

@@ -24,13 +24,17 @@ var red_spawn_timer: float = 0.0
 var time_elapsed: float = 0.0
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
-var blue_mobs: Array[MobUnit3D] = []
-var red_mobs: Array[MobUnit3D] = []
-
+const Cannon3DScript = preload("res://scripts/mob_control/Cannon3D.gd")
+const GiantEnemy3DScript = preload("res://scripts/mob_control/GiantEnemy3D.gd")
+const MultiplierGate3DScript = preload("res://scripts/mob_control/MultiplierGate3D.gd")
+const MobUnit3DScript = preload("res://scripts/mob_control/MobUnit3D.gd")
 const MobUnitScene = preload("res://scenes/mob_control/MobUnit3D.tscn")
 
-@onready var cannon: Cannon3D = $Cannon if has_node("Cannon") else null
-@onready var giant_enemy: GiantEnemy3D = $GiantEnemy if has_node("GiantEnemy") else null
+var blue_mobs: Array[MobUnit3DScript] = []
+var red_mobs: Array[MobUnit3DScript] = []
+
+@onready var cannon: Cannon3DScript = $Cannon if has_node("Cannon") else null
+@onready var giant_enemy: GiantEnemy3DScript = $GiantEnemy if has_node("GiantEnemy") else null
 @onready var gates_container: Node3D = $Gates if has_node("Gates") else null
 @onready var victory_banner: Control = $UI/VictoryBanner if has_node("UI/VictoryBanner") else null
 @onready var defeat_banner: Control = $UI/DefeatBanner if has_node("UI/DefeatBanner") else null
@@ -107,8 +111,8 @@ func _on_cannon_shoot_requested(muzzle_pos: Vector3) -> void:
 		return
 	_spawn_blue_mob(muzzle_pos)
 
-func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}) -> MobUnit3D:
-	var mob = MobUnitScene.instantiate() as MobUnit3D
+func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}) -> MobUnit3DScript:
+	var mob = MobUnitScene.instantiate() as MobUnit3DScript
 	mob.position = pos
 	mob.passed_gates = p_passed_gates.duplicate()
 	mob.setup("blue")
@@ -116,10 +120,10 @@ func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}) -> MobUnit3D
 	blue_mobs.append(mob)
 	return mob
 
-func _spawn_red_mob() -> MobUnit3D:
+func _spawn_red_mob() -> MobUnit3DScript:
 	if state != GameState.PLAYING:
 		return null
-	var mob = MobUnitScene.instantiate() as MobUnit3D
+	var mob = MobUnitScene.instantiate() as MobUnit3DScript
 	var x = rng.randf_range(-4.5, 4.5)
 	mob.position = Vector3(x, 0.5, -22.0)
 	mob.setup("red")
@@ -127,7 +131,7 @@ func _spawn_red_mob() -> MobUnit3D:
 	red_mobs.append(mob)
 	return mob
 
-func on_mob_entered_gate(mob: MobUnit3D, gate: MultiplierGate3D) -> void:
+func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> void:
 	if not is_live(mob) or mob.passed_gates.has(gate.gate_id):
 		return
 	mob.passed_gates[gate.gate_id] = true
@@ -165,7 +169,7 @@ func flush_pending_spawns() -> void:
 	for item in queue_copy:
 		_instantiate_clone(item)
 
-func on_mob_clash(blue: MobUnit3D, red: MobUnit3D) -> void:
+func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 	if not is_live(blue) or not is_live(red):
 		return
 	blue.is_consumed = true
@@ -173,7 +177,7 @@ func on_mob_clash(blue: MobUnit3D, red: MobUnit3D) -> void:
 	blue.queue_free()
 	red.queue_free()
 
-func on_mob_hit_giant(blue: MobUnit3D, giant: GiantEnemy3D) -> void:
+func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
 		return
 	blue.is_consumed = true
@@ -185,8 +189,8 @@ func _resolve_gate_contacts() -> void:
 	if gates_container == null:
 		return
 	for child in gates_container.get_children():
-		if child is MultiplierGate3D:
-			var gate: MultiplierGate3D = child
+		if child is MultiplierGate3DScript:
+			var gate: MultiplierGate3DScript = child
 			var gz = gate.global_position.z
 			var gx = gate.global_position.x
 			var gy = gate.global_position.y
@@ -250,7 +254,7 @@ func _evaluate_game_state() -> void:
 			victory_banner.visible = true
 
 func _cleanup_out_of_bounds_mobs() -> void:
-	var surviving_blue: Array[MobUnit3D] = []
+	var surviving_blue: Array[MobUnit3DScript] = []
 	for mob in blue_mobs:
 		if is_instance_valid(mob):
 			if mob.global_position.z < -25.0:
@@ -259,7 +263,7 @@ func _cleanup_out_of_bounds_mobs() -> void:
 				surviving_blue.append(mob)
 	blue_mobs = surviving_blue
 
-	var surviving_red: Array[MobUnit3D] = []
+	var surviving_red: Array[MobUnit3DScript] = []
 	for mob in red_mobs:
 		if is_instance_valid(mob):
 			if mob.global_position.z > 12.0:
@@ -268,7 +272,7 @@ func _cleanup_out_of_bounds_mobs() -> void:
 				surviving_red.append(mob)
 	red_mobs = surviving_red
 
-func is_live(mob: MobUnit3D) -> bool:
+func is_live(mob: MobUnit3DScript) -> bool:
 	return is_instance_valid(mob) and not mob.is_consumed and not mob.is_queued_for_deletion()
 
 func get_live_blue_mobs_count() -> int:
