@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Implemented Core Stage Config & Dynamic Depth Highway for Mob Control 3D (Issue #44, Parent #43):
+  - In `scripts/mob_control/MobControlMain.gd`, added `const STAGES: Array[Dictionary]` data structure defining 5 progressive stages with deterministic base HP (1,200 to 10,000), highway depths ($D \in [-32.0, -52.0]$), 3-act shield lock thresholds (75%, 50%, 25%), vault configurations, and red mob spawn intervals.
+  - Implemented dynamic Blue Mob highway depth cleanup bound in `_cleanup_out_of_bounds_mobs()` using `highway_min_z - 3.0` (GWT 8). Mobs reaching $Z < D - 3.0$ (e.g. $D - 3.1$) are safely freed, while mobs at $Z \ge D - 3.0$ (e.g. $D - 2.9$) are retained.
+  - Updated `GameState` enum with `STAGE_CLEAR` (`{ PLAYING, STAGE_CLEAR, VICTORY, DEFEAT }`).
+  - Added stage lifecycle management (`init_stage`, `advance_stage`, `cleanup_stage_entities`) enforcing cross-stage entity cleanup (GWT 7), ensuring all mobs, leftover surge units, destroyed/active vaults, and temporary pylons from Stage $N$ are freed before initializing Stage $N+1$.
+  - Enhanced automated test suites:
+    - Added Scenario 10 to `tests/test_mob_control.gd` verifying the 5-stage configuration matrix, GWT 8 dynamic highway depth-bound boundary retention/cleanup across multiple stages, and GWT 7 cross-stage entity cleanup.
+    - Updated `tests/test_mob_control.py` validating `STAGE_CLEAR` enum inclusion, `const STAGES` matrix, and dynamic highway depth cleanup contracts.
+
 ### Fixed
 - Fixed GDScript call-boundary type errors on freed instances and mid-combat runtime crashes in Mob Control 3D (Issue #41):
   - In `scripts/mob_control/MobControlMain.gd`, changed `func is_live(mob: Variant) -> bool` to accept `Variant` instead of statically typed `MobUnit3DScript`, preventing GDScript call-boundary type crashes (`Invalid type in function 'is_live' ... (previously freed) is not a subclass of the expected argument class`) when inspecting synchronously freed (`free()`) or deletion-pending (`queue_free()`) mob instances.
