@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented 3-Act Base Shield Lock State Machine & Pylons for Mob Control 3D (Issue #45, Parent #43):
+  - In `scripts/mob_control/GiantEnemy3D.gd`, introduced `EntityMode` enum (`BASE`, `PYLON`) and added `is_invulnerable` and `is_shielded` properties. Implemented 0-damage discard when shielded or invulnerable, and mode-aware 3D UI label display (`SHIELDED`, `PYLON`, or `HP`).
+  - In `scripts/mob_control/MobControlMain.gd`, implemented 3-act base shield lock state machine:
+    - Base HP clamping at 75%, 50%, and 25% thresholds (GWT 1). When blue mobs reduce HP to or past a threshold, HP clamps strictly to that percentage, the Base becomes invulnerable (`is_shielded = true`, `is_invulnerable = true`), incoming damage is discarded (0 damage), a single tick cannot cross two thresholds, and a Shield Pylon + Counter-Surge wave spawns.
+    - Parameterized Shield Pylon spawning and destruction in front of the Base using `GiantEnemy3D.gd` in `PYLON` mode with stage-configured HP (GWT 1).
+    - Dynamic Counter-Surge wave spawning of Red Mobs matching stage configuration counts and speed multipliers (`speed_mult`), participating in motion, swarm attrition, and breach detection.
+    - Deterministic shield release gate (GWT 2): base shield drops and invulnerability is cleared (`is_shielded = false`, `is_invulnerable = false`) only when both `pylon.hp == 0` (pylon destroyed) and `active_surge_units == 0` (all surge units eliminated), resuming subsequent base damage.
+  - Enhanced automated test suites:
+    - Added Scenario 11 (`test_scenario_11_three_act_base_shield_lock_state_machine`) to `tests/test_mob_control.gd` verifying GWT 1 clamped lock trigger at 75%, 50%, and 25%, 0-damage discard while shielded, single-tick multi-threshold crossing prevention, GWT 2 shield release dependency on both pylon destruction and surge elimination, and Stage 2 speed multiplier scaling.
+    - Added `test_shield_lock_state_machine_contract` to `tests/test_mob_control.py` validating `EntityMode`, shielding properties, pylon contact resolution, and state machine methods.
 - Implemented Core Stage Config & Dynamic Depth Highway for Mob Control 3D (Issue #44, Parent #43):
   - In `scripts/mob_control/MobControlMain.gd`, added `const STAGES: Array[Dictionary]` data structure defining 5 progressive stages with deterministic base HP (1,200 to 10,000), highway depths ($D \in [-32.0, -52.0]$), 3-act shield lock thresholds (75%, 50%, 25%), vault configurations, and red mob spawn intervals.
   - Implemented dynamic Blue Mob highway depth cleanup bound in `_cleanup_out_of_bounds_mobs()` using `highway_min_z - 3.0` (GWT 8). Mobs reaching $Z < D - 3.0$ (e.g. $D - 3.1$) are safely freed, while mobs at $Z \ge D - 3.0$ (e.g. $D - 2.9$) are retained.

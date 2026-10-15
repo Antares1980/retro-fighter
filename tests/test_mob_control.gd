@@ -80,6 +80,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_8_raw_key_fallback_and_scene_attachment()
 	test_scenario_9_freed_instance_safety_and_pruning()
 	test_scenario_10_core_stage_config_and_dynamic_depth_highway()
+	test_scenario_11_three_act_base_shield_lock_state_machine()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -966,6 +967,191 @@ func test_scenario_10_core_stage_config_and_dynamic_depth_highway() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_11_three_act_base_shield_lock_state_machine() -> void:
+	print("\nScenario 11: 3-Act Base Shield Lock State Machine & Pylons (GWT 1, GWT 2)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# --- 1. GWT 1: Lock 1 (75%) Clamped Trigger, Invulnerability, and Spawns ---
+	main.init_stage(0)
+	assert_equal(main.current_stage_index, 0, "Stage 1 initialized")
+	assert_equal(main.giant_enemy.hp, 1200, "Stage 1 Base HP is 1200")
+	assert_equal(main.giant_enemy.max_hp, 1200, "Stage 1 Base max_hp is 1200")
+	assert_false(main.is_base_shielded(), "Base initially unshielded")
+	assert_false(main.giant_enemy.is_invulnerable, "Base initially vulnerable")
+	assert_equal(main.active_pylons.size(), 0, "No active pylons at start")
+	assert_equal(main.active_surge_units.size(), 0, "No active surge units at start")
+	assert_equal(main.get_current_lock_act(), 1, "Initial lock act is 1 (75%)")
+
+	# Set Base HP near 75% threshold (75% of 1200 = 900)
+	main.giant_enemy.hp = 902
+	main.giant_enemy._update_ui()
+
+	# Mob 1 hits base: 902 -> 901 (above threshold, normal damage)
+	var b_test1 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 901, "Normal damage before threshold (902 -> 901)")
+	assert_false(main.is_base_shielded(), "Still unshielded at 901")
+
+	# Mob 2 hits base: 901 -> 900 (triggers Lock 1 at 75%)
+	var b_test2 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 900, "GWT 1: Base HP clamped exactly to 75% threshold (900)")
+	assert_true(main.giant_enemy.is_shielded, "GWT 1: Base becomes is_shielded")
+	assert_true(main.giant_enemy.is_invulnerable, "GWT 1: Base becomes is_invulnerable")
+	assert_true(main.is_base_shielded(), "GWT 1: is_base_shielded() returns true")
+	assert_equal(main.get_current_lock_act(), 2, "GWT 1: Lock act advanced to 2")
+
+	# Verify Shield Pylon 1 spawned
+	assert_equal(main.active_pylons.size(), 1, "GWT 1: Exactly 1 Shield Pylon spawned")
+	var pylon1 = main.active_pylons[0]
+	assert_equal(pylon1.hp, 250, "GWT 1: Stage 1 Lock 1 Pylon HP is 250")
+	assert_true(pylon1.is_pylon(), "GWT 1: Pylon entity_mode is PYLON")
+	assert_true(pylon1.is_in_group("pylons"), "GWT 1: Pylon is in 'pylons' group")
+
+	# Verify Counter-Surge wave 1 spawned
+	assert_equal(main.active_surge_units.size(), 5, "GWT 1: Counter-Surge wave spawns exactly 5 Red Mobs")
+	for s_mob in main.active_surge_units:
+		assert_true(s_mob.is_in_group("surge_units"), "Surge mob in 'surge_units' group")
+		assert_true(main.red_mobs.has(s_mob), "Surge mob is registered in red_mobs")
+		assert_equal(s_mob.speed, MobControlMainScript.RED_SPEED * 1.0, "Surge mob speed multiplier is 1.0x")
+
+	# --- 2. GWT 1: 0 Damage Discard While Shielded ---
+	var disc_mobs: Array = []
+	for i in range(5):
+		var b_disc = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+		disc_mobs.append(b_disc)
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 900, "GWT 1: Base HP remains 900 while shielded (0 damage)")
+	for b_disc in disc_mobs:
+		assert_false(main.is_live(b_disc), "GWT 1: Incoming blue mob hitting shielded base is discarded/consumed")
+
+	# --- 3. GWT 1: Single Tick Cannot Cross Two Thresholds ---
+	main.cleanup_stage_entities()
+	main.init_stage(0)
+	main.giant_enemy.hp = 910
+	main.giant_enemy._update_ui()
+	# Spawn 50 blue mobs all colliding with the base in a single tick
+	for i in range(50):
+		main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 900, "GWT 1: Single tick cannot cross two thresholds; clamped strictly to 75% (900)")
+	assert_true(main.is_base_shielded(), "GWT 1: Base shielded after multi-mob tick")
+	assert_equal(main.get_current_lock_act(), 2, "GWT 1: Act is 2 (did not skip to 50% or 25%)")
+
+	# --- 4. GWT 2: Shield Lock Release - Condition 1 (Pylon destroyed first, Surge alive) ---
+	var current_pylon = main.active_pylons[0]
+	assert_true(main.active_surge_units.size() > 0, "Counter-Surge units active before pylon kill")
+	current_pylon.hp = 0
+	main.step(1.0 / 60.0)
+	assert_equal(main.active_pylons.size(), 0, "Pylon with 0 HP destroyed and pruned")
+	assert_true(main.active_surge_units.size() > 0, "Surge units still alive after pylon destroyed")
+	assert_true(main.is_base_shielded(), "GWT 2: Shield remains active while Counter-Surge units survive")
+
+	# Attempt to damage base while surge survives
+	var b_block = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 900, "GWT 2: Base takes 0 damage while surge survives")
+
+	# Eliminate all Counter-Surge units
+	for s_unit in main.active_surge_units:
+		if main.is_live(s_unit):
+			s_unit.is_consumed = true
+			s_unit.queue_free()
+	main.step(1.0 / 60.0)
+	assert_equal(main.active_surge_units.size(), 0, "All Counter-Surge units eliminated")
+	assert_false(main.is_base_shielded(), "GWT 2: Shield drops when BOTH pylon destroyed AND surge eliminated")
+	assert_false(main.giant_enemy.is_invulnerable, "GWT 2: Base invulnerability is cleared")
+
+	# Subsequent blue mob collision damages Base
+	var b_hit1 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 899, "GWT 2: Subsequent blue mob damages Base (900 -> 899)")
+
+	# --- 5. GWT 2: Lock 2 (50%) Trigger & Condition 2 (Surge cleared first, Pylon destroyed second) ---
+	main.giant_enemy.hp = 601
+	main.giant_enemy._update_ui()
+	var b_lock2 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 600, "Lock 2: Base HP clamped to 50% threshold (600)")
+	assert_true(main.is_base_shielded(), "Lock 2: Base shielded")
+	assert_equal(main.active_pylons.size(), 1, "Lock 2 Pylon spawned")
+	assert_equal(main.active_pylons[0].hp, 350, "Lock 2 Pylon HP is 350")
+	assert_equal(main.active_surge_units.size(), 8, "Lock 2 spawns 8 Counter-Surge reds")
+
+	# Eliminate surge units first
+	for s_unit in main.active_surge_units:
+		if main.is_live(s_unit):
+			s_unit.is_consumed = true
+			s_unit.queue_free()
+	main.step(1.0 / 60.0)
+	assert_equal(main.active_surge_units.size(), 0, "Lock 2 surge units cleared first")
+	assert_true(main.is_base_shielded(), "GWT 2: Shield remains active while Pylon still has HP")
+
+	# Destroy Pylon via simulated Blue Mob collision
+	var lock2_pylon = main.active_pylons[0]
+	lock2_pylon.hp = 1
+	var b_pylon_hit = main._spawn_blue_mob(Vector3(lock2_pylon.global_position.x, 1.25, lock2_pylon.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.active_pylons.size(), 0, "Lock 2 Pylon destroyed by blue mob hit")
+	assert_false(main.is_base_shielded(), "GWT 2: Lock 2 shield drops after Pylon destroyed")
+
+	# Damage resumes toward Lock 3
+	var b_hit2 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 599, "Damage resumes toward Lock 3 (600 -> 599)")
+
+	# --- 6. Lock 3 (25%) Trigger & Resolution down to Victory ---
+	main.giant_enemy.hp = 301
+	main.giant_enemy._update_ui()
+	var b_lock3 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 300, "Lock 3: Base HP clamped to 25% threshold (300)")
+	assert_true(main.is_base_shielded(), "Lock 3: Base shielded")
+	assert_equal(main.active_pylons.size(), 1, "Lock 3 Pylon spawned")
+	assert_equal(main.active_pylons[0].hp, 500, "Lock 3 Pylon HP is 500")
+	assert_equal(main.active_surge_units.size(), 12, "Lock 3 spawns 12 Counter-Surge reds")
+
+	# Clear Lock 3 Pylon & Surge
+	main.active_pylons[0].hp = 0
+	for s_unit in main.active_surge_units:
+		if main.is_live(s_unit):
+			s_unit.is_consumed = true
+			s_unit.queue_free()
+	main.step(1.0 / 60.0)
+	assert_false(main.is_base_shielded(), "Lock 3 shield drops")
+
+	# Final Base depletion to 0 HP
+	main.giant_enemy.hp = 1
+	var b_final = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 0, "Base HP depleted to 0 after all 3 acts")
+	assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "Victory achieved after all 3 shield locks")
+
+	# --- 7. Stage 2 Speed Multiplier Verification ---
+	main.init_stage(1)
+	assert_equal(main.current_stage_index, 1, "Stage 2 initialized")
+	assert_equal(main.giant_enemy.hp, 2500, "Stage 2 Base HP is 2500")
+	# Lock 2 on Stage 2 has speed_mult = 1.05 and surge_reds = 12
+	main.current_lock_act = 2
+	main.giant_enemy.hp = 1251
+	main.giant_enemy._update_ui()
+	var b_s2 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 1250, "Stage 2 Lock 2 clamped to 1250 (50%)")
+	assert_equal(main.active_surge_units.size(), 12, "Stage 2 Lock 2 spawns 12 Counter-Surge reds")
+	var exp_spd: float = MobControlMainScript.RED_SPEED * 1.05
+	for s_mob in main.active_surge_units:
+		assert_true(abs(s_mob.speed - exp_spd) < 0.001, "Stage 2 Lock 2 surge mob speed matches 1.05x multiplier")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
 
 
 

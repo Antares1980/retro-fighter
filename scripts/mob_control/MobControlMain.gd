@@ -100,6 +100,8 @@ var highway_min_z: float = -32.0
 var active_pylons: Array[Node3D] = []
 var active_vaults: Array[Node3D] = []
 var active_surge_units: Array = []
+var current_lock_act: int = 1
+var shield_locks_enabled: bool = false
 
 var state: GameState = GameState.PLAYING
 var _returning_to_menu: bool = false
@@ -114,6 +116,7 @@ const GiantEnemy3DScript = preload("res://scripts/mob_control/GiantEnemy3D.gd")
 const MultiplierGate3DScript = preload("res://scripts/mob_control/MultiplierGate3D.gd")
 const MobUnit3DScript = preload("res://scripts/mob_control/MobUnit3D.gd")
 const MobUnitScene = preload("res://scenes/mob_control/MobUnit3D.tscn")
+const GiantEnemyScene = preload("res://scenes/mob_control/GiantEnemy3D.tscn")
 
 var blue_mobs: Array[MobUnit3DScript] = []
 var red_mobs: Array[MobUnit3DScript] = []
@@ -167,6 +170,12 @@ func step(delta: float) -> void:
 	for i in range(red_mobs.size() - 1, -1, -1):
 		if not is_instance_valid(red_mobs[i]):
 			red_mobs.remove_at(i)
+	for i in range(active_pylons.size() - 1, -1, -1):
+		if not is_instance_valid(active_pylons[i]):
+			active_pylons.remove_at(i)
+	for i in range(active_surge_units.size() - 1, -1, -1):
+		if not is_instance_valid(active_surge_units[i]):
+			active_surge_units.remove_at(i)
 
 	# --- Phase 1: Motion & Spawner ---
 	if is_instance_valid(cannon):
@@ -178,10 +187,16 @@ func step(delta: float) -> void:
 
 	for mob in red_mobs:
 		if is_live(mob):
-			mob.position.z += RED_SPEED * delta
+			var spd: float = mob.speed if ("speed" in mob and mob.speed > 0.0) else RED_SPEED
+			mob.position.z += spd * delta
 
 	if is_instance_valid(giant_enemy):
 		giant_enemy.position.z += GIANT_SPEED * delta
+
+	for pylon in active_pylons:
+		if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
+			var p_spd: float = pylon.speed if ("speed" in pylon and pylon.speed > 0.0) else GIANT_SPEED
+			pylon.position.z += p_spd * delta
 
 	time_elapsed += delta
 	red_spawn_timer += delta
@@ -192,7 +207,9 @@ func step(delta: float) -> void:
 	# --- Phase 2: Explicit Contact Resolution Pass ---
 	_resolve_gate_contacts()
 	_resolve_mob_clashes()
+	_resolve_pylon_contacts()
 	_resolve_giant_contacts()
+	_check_shield_release()
 
 	# --- Phase 3: State Evaluation & Latch ---
 	_evaluate_game_state()
@@ -272,14 +289,150 @@ func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 	red.is_consumed = true
 	blue.queue_free()
 	red.queue_free()
+	_check_shield_release()
+
+func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
+	if not is_live(blue):
+		return
+	blue.is_consumed = true
+	blue.queue_free()
+	if is_instance_valid(pylon):
+		pylon.take_damage(1)
+		if pylon.hp <= 0:
+			if not pylon.is_queued_for_deletion():
+				pylon.queue_free()
+			var idx = active_pylons.find(pylon)
+			if idx != -1:
+				active_pylons.remove_at(idx)
+			_check_shield_release()
 
 func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
 		return
 	blue.is_consumed = true
 	blue.queue_free()
-	if is_instance_valid(giant):
-		giant.take_damage(1)
+	if not is_instance_valid(giant):
+		return
+	if giant.is_shielded or giant.is_invulnerable:
+		# GWT 1: 0 damage discard while shielded
+		return
+	_apply_damage_to_base(1)
+
+func _apply_damage_to_base(amount: int = 1) -> void:
+	if not is_instance_valid(giant_enemy) or giant_enemy.is_shielded or giant_enemy.is_invulnerable:
+		return
+
+	var use_locks: bool = shield_locks_enabled or giant_enemy.max_hp > 150
+	if not use_locks:
+		giant_enemy.take_damage(amount)
+		return
+
+	var cfg: Dictionary = get_current_stage_config()
+	var total_base_hp: int = giant_enemy.max_hp if giant_enemy.max_hp > 0 else int(cfg.get("base_hp", 1200))
+	var prev_hp: int = giant_enemy.hp
+	var new_hp: int = prev_hp - amount
+
+	var thresh: int = -1
+	var lock_key: String = ""
+	if current_lock_act == 1:
+		thresh = int(round(float(total_base_hp) * 0.75))
+		lock_key = "lock_1"
+	elif current_lock_act == 2:
+		thresh = int(round(float(total_base_hp) * 0.50))
+		lock_key = "lock_2"
+	elif current_lock_act == 3:
+		thresh = int(round(float(total_base_hp) * 0.25))
+		lock_key = "lock_3"
+
+	if thresh > 0 and prev_hp > thresh and new_hp <= thresh:
+		# GWT 1: Clamped exactly to threshold percentage, base becomes invulnerable
+		giant_enemy.hp = thresh
+		giant_enemy.is_shielded = true
+		giant_enemy.is_invulnerable = true
+		giant_enemy._update_ui()
+
+		var lock_cfg: Dictionary = cfg.get(lock_key, {})
+		_trigger_shield_lock(current_lock_act, lock_cfg)
+		current_lock_act += 1
+	else:
+		giant_enemy.take_damage(amount)
+
+func _trigger_shield_lock(_act: int, lock_data: Dictionary) -> void:
+	var pylon_hp: int = int(lock_data.get("hp", 250))
+	var surge_count: int = int(lock_data.get("surge_reds", 5))
+	var speed_mult: float = float(lock_data.get("speed_mult", 1.0))
+
+	_spawn_shield_pylon(pylon_hp)
+	_spawn_counter_surge_wave(surge_count, speed_mult)
+
+func _spawn_shield_pylon(pylon_hp: int) -> GiantEnemy3DScript:
+	var pylon: GiantEnemy3DScript
+	if GiantEnemyScene != null:
+		pylon = GiantEnemyScene.instantiate() as GiantEnemy3DScript
+	else:
+		pylon = GiantEnemy3DScript.new()
+	pylon.entity_mode = GiantEnemy3DScript.EntityMode.PYLON
+	pylon.hp = pylon_hp
+	pylon.max_hp = pylon_hp
+	pylon.speed = GIANT_SPEED
+	pylon.is_invulnerable = false
+	pylon.is_shielded = false
+	var base_z: float = giant_enemy.global_position.z if is_instance_valid(giant_enemy) else -15.0
+	pylon.position = Vector3(0.0, 1.25, base_z + 3.0)
+	pylon.name = "ShieldPylon_%d" % current_lock_act
+	pylon.add_to_group("pylons")
+	add_child(pylon)
+	active_pylons.append(pylon)
+	pylon._update_ui()
+	return pylon
+
+func _spawn_counter_surge_wave(count: int, speed_mult: float = 1.0) -> Array:
+	var spawned: Array = []
+	if state != GameState.PLAYING:
+		return spawned
+	var base_z: float = giant_enemy.global_position.z if is_instance_valid(giant_enemy) else -15.0
+	var spawn_z: float = base_z + 2.0
+	for i in range(count):
+		var mob = MobUnitScene.instantiate() as MobUnit3DScript
+		var x: float = -4.0 + (8.0 / float(maxi(1, count - 1))) * float(i) if count > 1 else 0.0
+		var z_offset: float = float(i % 3) * 0.4
+		mob.position = Vector3(x, 0.5, spawn_z + z_offset)
+		mob.setup("red")
+		mob.add_to_group("surge_units")
+		add_child(mob)
+		mob.speed = RED_SPEED * speed_mult
+		red_mobs.append(mob)
+		active_surge_units.append(mob)
+		spawned.append(mob)
+	return spawned
+
+func _check_shield_release() -> void:
+	if not is_instance_valid(giant_enemy) or not giant_enemy.is_shielded:
+		return
+
+	for i in range(active_pylons.size() - 1, -1, -1):
+		var p = active_pylons[i]
+		if not is_instance_valid(p) or p.is_queued_for_deletion() or ("hp" in p and p.hp <= 0):
+			if is_instance_valid(p) and not p.is_queued_for_deletion():
+				p.queue_free()
+			active_pylons.remove_at(i)
+
+	for i in range(active_surge_units.size() - 1, -1, -1):
+		var s = active_surge_units[i]
+		if not is_live(s):
+			active_surge_units.remove_at(i)
+
+	# GWT 2: Shield drops only when pylon HP reaches 0 and all surge reds are eliminated
+	if active_pylons.is_empty() and active_surge_units.is_empty():
+		giant_enemy.is_shielded = false
+		giant_enemy.is_invulnerable = false
+		giant_enemy._update_ui()
+
+func is_base_shielded() -> bool:
+	return is_instance_valid(giant_enemy) and (giant_enemy.is_shielded or giant_enemy.is_invulnerable)
+
+func get_current_lock_act() -> int:
+	return current_lock_act
 
 func _resolve_gate_contacts() -> void:
 	if gates_container == null:
@@ -311,6 +464,22 @@ func _resolve_mob_clashes() -> void:
 				on_mob_clash(blue, red)
 				break
 
+func _resolve_pylon_contacts() -> void:
+	for pylon in active_pylons:
+		if not is_instance_valid(pylon) or pylon.is_queued_for_deletion():
+			continue
+		var px = pylon.global_position.x
+		var pz = pylon.global_position.z
+		var py = pylon.global_position.y
+
+		for blue in blue_mobs:
+			if not is_live(blue):
+				continue
+			if abs(blue.global_position.x - px) <= (4.75 + 0.22) and \
+			   abs(blue.global_position.z - pz) <= (1.25 + 0.22) and \
+			   abs(blue.global_position.y - py) <= (1.25 + 0.35):
+				on_mob_hit_pylon(blue, pylon)
+
 func _resolve_giant_contacts() -> void:
 	if not is_instance_valid(giant_enemy):
 		return
@@ -322,8 +491,8 @@ func _resolve_giant_contacts() -> void:
 		if not is_live(blue):
 			continue
 		if abs(blue.global_position.x - gx) <= (4.75 + 0.22) and \
-		   abs(blue.global_position.z - gz) <= (1.25 + 0.22) and \
-		   abs(blue.global_position.y - gy) <= (1.25 + 0.35):
+			   abs(blue.global_position.z - gz) <= (1.25 + 0.22) and \
+			   abs(blue.global_position.y - gy) <= (1.25 + 0.35):
 			on_mob_hit_giant(blue, giant_enemy)
 
 func _evaluate_game_state() -> void:
@@ -332,10 +501,15 @@ func _evaluate_game_state() -> void:
 	if is_instance_valid(giant_enemy) and giant_enemy.global_position.z >= 9.0:
 		defeat_triggered = true
 	else:
-		for red in red_mobs:
-			if is_live(red) and red.global_position.z >= 9.0:
+		for pylon in active_pylons:
+			if is_instance_valid(pylon) and pylon.global_position.z >= 9.0:
 				defeat_triggered = true
 				break
+		if not defeat_triggered:
+			for red in red_mobs:
+				if is_live(red) and red.global_position.z >= 9.0:
+					defeat_triggered = true
+					break
 
 	if defeat_triggered:
 		state = GameState.DEFEAT
@@ -423,6 +597,10 @@ func cleanup_stage_entities() -> void:
 			surge.queue_free()
 	active_surge_units.clear()
 
+	if is_instance_valid(giant_enemy):
+		giant_enemy.is_shielded = false
+		giant_enemy.is_invulnerable = false
+
 	if is_inside_tree() and get_tree() != null:
 		for pylon in get_tree().get_nodes_in_group("pylons"):
 			if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
@@ -437,6 +615,8 @@ func cleanup_stage_entities() -> void:
 func init_stage(stage_idx: int) -> void:
 	current_stage_index = clampi(stage_idx, 0, STAGES.size() - 1)
 	state = GameState.PLAYING
+	current_lock_act = 1
+	shield_locks_enabled = true
 	cleanup_stage_entities()
 	var cfg: Dictionary = STAGES[current_stage_index]
 	highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
@@ -466,6 +646,8 @@ func _spawn_stage_layout(_stage_idx: int) -> void:
 
 func reset_stage() -> void:
 	state = GameState.PLAYING
+	current_lock_act = 1
+	shield_locks_enabled = false
 	if is_instance_valid(giant_enemy):
 		giant_enemy.reset(150)
 	if is_instance_valid(cannon):
