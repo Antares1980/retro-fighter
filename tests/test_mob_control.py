@@ -103,7 +103,7 @@ class TestMobControl(unittest.TestCase):
 
     def test_scripts_contract(self):
         self.assertIn('class_name MobControlMain', self.main_script)
-        self.assertIn('enum GameState { PLAYING, VICTORY, DEFEAT }', self.main_script)
+        self.assertIn('enum GameState { PLAYING, STAGE_CLEAR, VICTORY, DEFEAT }', self.main_script)
         self.assertIn('const MAX_MOBS: int = 300', self.main_script)
         self.assertIn('func step(delta: float)', self.main_script)
         self.assertIn('func flush_pending_spawns()', self.main_script)
@@ -232,6 +232,18 @@ class TestMobControl(unittest.TestCase):
         self.assertIn("blue_mobs.remove_at(i)", self.main_script)
         self.assertIn("red_mobs.remove_at(i)", self.main_script)
         self.assertIn("test_scenario_9_freed_instance_safety_and_pruning", self.test_gd)
+
+    def test_stage_matrix_and_enum_contract(self):
+        """Issue #44 / GWT 7, 8: Verify const STAGES array, stage init, STAGE_CLEAR enum, and dynamic depth bound."""
+        self.assertIn('enum GameState { PLAYING, STAGE_CLEAR, VICTORY, DEFEAT }', self.main_script)
+        self.assertIn('const STAGES: Array[Dictionary]', self.main_script)
+        self.assertIn('"base_hp": 1200', self.main_script)
+        self.assertIn('"base_hp": 10000', self.main_script)
+        self.assertIn('highway_min_z - 3.0', self.main_script)
+        self.assertIn('func init_stage(', self.main_script)
+        self.assertIn('func cleanup_stage_entities()', self.main_script)
+        self.assertIn('func get_cleanup_bound_z()', self.main_script)
+        self.assertIn("test_scenario_10_core_stage_config_and_dynamic_depth_highway", self.test_gd)
 
 if __name__ == "__main__":
     unittest.main()

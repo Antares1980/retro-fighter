@@ -79,6 +79,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_7_controls_discoverability_steering_and_space_fire()
 	test_scenario_8_raw_key_fallback_and_scene_attachment()
 	test_scenario_9_freed_instance_safety_and_pruning()
+	test_scenario_10_core_stage_config_and_dynamic_depth_highway()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -842,6 +843,130 @@ func test_scenario_9_freed_instance_safety_and_pruning() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_10_core_stage_config_and_dynamic_depth_highway() -> void:
+	print("\nScenario 10: Core Stage Config & Dynamic Depth Highway (GWT 7, GWT 8)")
+	var active_tree = _get_tree()
+
+	# --- 1. STAGES Data Structure Matrix Contract Verification ---
+	assert_equal(MobControlMainScript.STAGES.size(), 5, "STAGES contains exactly 5 progressive stages")
+
+	var expected_configs = [
+		{"stage": 1, "base_hp": 1200, "highway_depth": -32.0, "cleanup_bound": -35.0, "vault_hp": 400, "red_spawn_interval": 1.8},
+		{"stage": 2, "base_hp": 2500, "highway_depth": -36.0, "cleanup_bound": -39.0, "vault_hp": 700, "red_spawn_interval": 1.5},
+		{"stage": 3, "base_hp": 4500, "highway_depth": -42.0, "cleanup_bound": -45.0, "vault_hp": 1200, "red_spawn_interval": 1.2},
+		{"stage": 4, "base_hp": 7000, "highway_depth": -46.0, "cleanup_bound": -49.0, "vault_hp": 1800, "red_spawn_interval": 1.0},
+		{"stage": 5, "base_hp": 10000, "highway_depth": -52.0, "cleanup_bound": -55.0, "vault_hp": 2500, "red_spawn_interval": 0.8},
+	]
+
+	for i in range(5):
+		var cfg = MobControlMainScript.STAGES[i]
+		var exp = expected_configs[i]
+		assert_equal(cfg["stage"], exp["stage"], "Stage %d index matches" % (i + 1))
+		assert_equal(cfg["base_hp"], exp["base_hp"], "Stage %d base_hp matches" % (i + 1))
+		assert_equal(cfg["highway_depth"], exp["highway_depth"], "Stage %d highway_depth matches" % (i + 1))
+		assert_equal(cfg["highway_min_z"], exp["highway_depth"], "Stage %d highway_min_z matches" % (i + 1))
+		assert_equal(cfg["cleanup_bound"], exp["cleanup_bound"], "Stage %d cleanup_bound matches" % (i + 1))
+		assert_equal(cfg["vault_hp"], exp["vault_hp"], "Stage %d vault_hp matches" % (i + 1))
+		assert_equal(cfg["red_spawn_interval"], exp["red_spawn_interval"], "Stage %d red_spawn_interval matches" % (i + 1))
+		assert_true(cfg.has("lock_1") and cfg["lock_1"].has("hp"), "Stage %d has lock_1 configuration" % (i + 1))
+		assert_true(cfg.has("lock_2") and cfg["lock_2"].has("hp"), "Stage %d has lock_2 configuration" % (i + 1))
+		assert_true(cfg.has("lock_3") and cfg["lock_3"].has("hp"), "Stage %d has lock_3 configuration" % (i + 1))
+
+	# --- 2. GWT 8: Dynamic Highway Depth-Bound Cleanup Verification ---
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# Verify Stage 1 bounds: D = -32.0, bound = -35.0
+	assert_equal(main.current_stage_index, 0, "Stage index initialized to 0")
+	assert_equal(main.get_highway_min_z(), -32.0, "Stage 1 highway_min_z is -32.0")
+	assert_equal(main.get_cleanup_bound_z(), -35.0, "Stage 1 cleanup bound (highway_min_z - 3.0) is -35.0")
+
+	# Spawn Blue mobs around Stage 1 bound (-35.0)
+	var b_freed_1 = main._spawn_blue_mob(Vector3(0.0, 0.5, -35.1)) # Z < D - 3.0
+	var b_retained_1 = main._spawn_blue_mob(Vector3(0.0, 0.5, -34.9)) # Z >= D - 3.0
+	var b_exact_1 = main._spawn_blue_mob(Vector3(0.0, 0.5, -35.0)) # Z == D - 3.0
+	assert_equal(main.blue_mobs.size(), 3, "3 blue mobs spawned for Stage 1 boundary test")
+
+	main._cleanup_out_of_bounds_mobs()
+	assert_false(main.is_live(b_freed_1), "GWT 8: Blue mob at Z < D - 3.0 (-35.1) is freed")
+	assert_true(main.is_live(b_retained_1), "GWT 8: Blue mob at Z >= D - 3.0 (-34.9) is retained")
+	assert_true(main.is_live(b_exact_1), "GWT 8: Blue mob at exact boundary (-35.0) is retained")
+	assert_equal(main.blue_mobs.size(), 2, "blue_mobs array holds 2 survivors")
+	assert_false(main.blue_mobs.has(b_freed_1), "blue_mobs does not contain freed mob")
+
+	# Verify Stage 2 bounds: D = -36.0, bound = -39.0
+	main.init_stage(1)
+	assert_equal(main.current_stage_index, 1, "Stage index updated to 1")
+	assert_equal(main.get_highway_min_z(), -36.0, "Stage 2 highway_min_z is -36.0")
+	assert_equal(main.get_cleanup_bound_z(), -39.0, "Stage 2 cleanup bound is -39.0")
+
+	var b_freed_2 = main._spawn_blue_mob(Vector3(0.0, 0.5, -39.1))
+	var b_retained_2 = main._spawn_blue_mob(Vector3(0.0, 0.5, -38.9))
+	main._cleanup_out_of_bounds_mobs()
+	assert_false(main.is_live(b_freed_2), "GWT 8: Stage 2 Blue mob at Z < -39.0 is freed")
+	assert_true(main.is_live(b_retained_2), "GWT 8: Stage 2 Blue mob at Z >= -39.0 is retained")
+
+	# Verify Stage 5 bounds: D = -52.0, bound = -55.0
+	main.init_stage(4)
+	assert_equal(main.current_stage_index, 4, "Stage index updated to 4 (Stage 5)")
+	assert_equal(main.get_highway_min_z(), -52.0, "Stage 5 highway_min_z is -52.0")
+	assert_equal(main.get_cleanup_bound_z(), -55.0, "Stage 5 cleanup bound is -55.0")
+
+	var b_freed_5 = main._spawn_blue_mob(Vector3(0.0, 0.5, -55.1))
+	var b_retained_5 = main._spawn_blue_mob(Vector3(0.0, 0.5, -54.9))
+	main._cleanup_out_of_bounds_mobs()
+	assert_false(main.is_live(b_freed_5), "GWT 8: Stage 5 Blue mob at Z < -55.0 is freed")
+	assert_true(main.is_live(b_retained_5), "GWT 8: Stage 5 Blue mob at Z >= -55.0 is retained")
+
+	# --- 3. GWT 7: Cross-Stage Entity Cleanup Verification ---
+	main.init_stage(0)
+	assert_equal(main.current_stage_index, 0, "Reset to Stage 1 for cross-stage cleanup test")
+
+	# Populate stage with active entities
+	var s1_blue = main._spawn_blue_mob(Vector3(0.0, 0.5, 0.0))
+	var s1_red = main._spawn_red_mob()
+
+	var dummy_pylon = Node3D.new()
+	dummy_pylon.name = "TestPylon"
+	main.add_child(dummy_pylon)
+	main.active_pylons.append(dummy_pylon)
+
+	var dummy_vault = Node3D.new()
+	dummy_vault.name = "TestVault"
+	main.add_child(dummy_vault)
+	main.active_vaults.append(dummy_vault)
+
+	var dummy_surge = main._spawn_red_mob()
+	main.active_surge_units.append(dummy_surge)
+
+	assert_true(main.blue_mobs.size() > 0, "Stage 1 has blue mobs before transition")
+	assert_true(main.red_mobs.size() > 0, "Stage 1 has red mobs before transition")
+	assert_true(main.active_pylons.size() == 1, "Stage 1 has active pylon")
+	assert_true(main.active_vaults.size() == 1, "Stage 1 has active vault")
+	assert_true(main.active_surge_units.size() == 1, "Stage 1 has active surge unit")
+
+	# Advance to Stage N+1 (Stage 2)
+	main.state = MobControlMainScript.GameState.STAGE_CLEAR
+	main.advance_stage()
+
+	assert_equal(main.current_stage_index, 1, "GWT 7: Successfully advanced to Stage 2")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 7: Stage 2 state is PLAYING")
+	assert_equal(main.highway_min_z, -36.0, "GWT 7: Stage 2 highway depth initialized")
+	assert_equal(main.blue_mobs.size(), 0, "GWT 7: All blue mobs from Stage N freed")
+	assert_equal(main.red_mobs.size(), 0, "GWT 7: All red mobs from Stage N freed")
+	assert_equal(main.active_pylons.size(), 0, "GWT 7: Active pylons array cleared")
+	assert_equal(main.active_vaults.size(), 0, "GWT 7: Active vaults array cleared")
+	assert_equal(main.active_surge_units.size(), 0, "GWT 7: Active surge units array cleared")
+	assert_false(is_instance_valid(dummy_pylon) and not dummy_pylon.is_queued_for_deletion(), "GWT 7: Temporary pylon freed")
+	assert_false(is_instance_valid(dummy_vault) and not dummy_vault.is_queued_for_deletion(), "GWT 7: Destroyed/leftover vault freed")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
 
 
 

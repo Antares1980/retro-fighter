@@ -7,7 +7,80 @@ extends Node3D
 
 signal return_to_menu_requested
 
-enum GameState { PLAYING, VICTORY, DEFEAT }
+enum GameState { PLAYING, STAGE_CLEAR, VICTORY, DEFEAT }
+
+const STAGES: Array[Dictionary] = [
+	{
+		"stage": 1,
+		"base_hp": 1200,
+		"highway_depth": -32.0,
+		"highway_min_z": -32.0,
+		"cleanup_bound": -35.0,
+		"lock_1": {"hp": 250, "surge_reds": 5, "speed_mult": 1.0},
+		"lock_2": {"hp": 350, "surge_reds": 8, "speed_mult": 1.0},
+		"lock_3": {"hp": 500, "surge_reds": 12, "speed_mult": 1.0},
+		"vault_hp": 400,
+		"unlocked_gate": "x4",
+		"vault_gate_mult": 4,
+		"red_spawn_interval": 1.8,
+	},
+	{
+		"stage": 2,
+		"base_hp": 2500,
+		"highway_depth": -36.0,
+		"highway_min_z": -36.0,
+		"cleanup_bound": -39.0,
+		"lock_1": {"hp": 400, "surge_reds": 8, "speed_mult": 1.0},
+		"lock_2": {"hp": 550, "surge_reds": 12, "speed_mult": 1.05},
+		"lock_3": {"hp": 750, "surge_reds": 16, "speed_mult": 1.05},
+		"vault_hp": 700,
+		"unlocked_gate": "x4",
+		"vault_gate_mult": 4,
+		"red_spawn_interval": 1.5,
+	},
+	{
+		"stage": 3,
+		"base_hp": 4500,
+		"highway_depth": -42.0,
+		"highway_min_z": -42.0,
+		"cleanup_bound": -45.0,
+		"lock_1": {"hp": 600, "surge_reds": 10, "speed_mult": 1.05},
+		"lock_2": {"hp": 850, "surge_reds": 15, "speed_mult": 1.1},
+		"lock_3": {"hp": 1100, "surge_reds": 20, "speed_mult": 1.1},
+		"vault_hp": 1200,
+		"unlocked_gate": "x5",
+		"vault_gate_mult": 5,
+		"red_spawn_interval": 1.2,
+	},
+	{
+		"stage": 4,
+		"base_hp": 7000,
+		"highway_depth": -46.0,
+		"highway_min_z": -46.0,
+		"cleanup_bound": -49.0,
+		"lock_1": {"hp": 850, "surge_reds": 12, "speed_mult": 1.1},
+		"lock_2": {"hp": 1150, "surge_reds": 18, "speed_mult": 1.15},
+		"lock_3": {"hp": 1450, "surge_reds": 25, "speed_mult": 1.15},
+		"vault_hp": 1800,
+		"unlocked_gate": "x5",
+		"vault_gate_mult": 5,
+		"red_spawn_interval": 1.0,
+	},
+	{
+		"stage": 5,
+		"base_hp": 10000,
+		"highway_depth": -52.0,
+		"highway_min_z": -52.0,
+		"cleanup_bound": -55.0,
+		"lock_1": {"hp": 1100, "surge_reds": 15, "speed_mult": 1.15},
+		"lock_2": {"hp": 1400, "surge_reds": 22, "speed_mult": 1.2},
+		"lock_3": {"hp": 1800, "surge_reds": 30, "speed_mult": 1.2},
+		"vault_hp": 2500,
+		"unlocked_gate": "x5",
+		"vault_gate_mult": 5,
+		"red_spawn_interval": 0.8,
+	},
+]
 
 const MAX_MOBS: int = 300
 const BLUE_SPEED: float = -9.0
@@ -15,6 +88,18 @@ const RED_SPEED: float = 4.2
 const GIANT_SPEED: float = 1.0
 const RED_SPAWN_START_TIME: float = 1.0
 const RED_SPAWN_INTERVAL: float = 1.0
+
+var current_stage_index: int = 0:
+	set(value):
+		current_stage_index = clampi(value, 0, STAGES.size() - 1)
+		if STAGES.size() > 0:
+			var cfg: Dictionary = STAGES[current_stage_index]
+			highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
+
+var highway_min_z: float = -32.0
+var active_pylons: Array[Node3D] = []
+var active_vaults: Array[Node3D] = []
+var active_surge_units: Array = []
 
 var state: GameState = GameState.PLAYING
 var _returning_to_menu: bool = false
@@ -42,6 +127,9 @@ var red_mobs: Array[MobUnit3DScript] = []
 
 func _ready() -> void:
 	_resolve_nodes()
+	if STAGES.size() > 0:
+		var cfg: Dictionary = STAGES[current_stage_index]
+		highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
 	if is_instance_valid(cannon) and not cannon.shoot_requested.is_connected(_on_cannon_shoot_requested):
 		cannon.shoot_requested.connect(_on_cannon_shoot_requested)
 	if is_instance_valid(victory_banner):
@@ -261,11 +349,23 @@ func _evaluate_game_state() -> void:
 		if victory_banner != null:
 			victory_banner.visible = true
 
+func get_current_stage_config() -> Dictionary:
+	if current_stage_index >= 0 and current_stage_index < STAGES.size():
+		return STAGES[current_stage_index]
+	return STAGES[0]
+
+func get_highway_min_z() -> float:
+	return highway_min_z
+
+func get_cleanup_bound_z() -> float:
+	return highway_min_z - 3.0
+
 func _cleanup_out_of_bounds_mobs() -> void:
+	var bound_z: float = get_cleanup_bound_z()
 	var surviving_blue: Array[MobUnit3DScript] = []
 	for mob in blue_mobs:
 		if is_live(mob):
-			if mob.global_position.z < -25.0:
+			if mob.global_position.z < bound_z:
 				mob.queue_free()
 			else:
 				surviving_blue.append(mob)
@@ -308,6 +408,62 @@ func cleanup_all_mobs() -> void:
 	pending_spawns = 0
 	pending_spawn_queue.clear()
 
+func cleanup_stage_entities() -> void:
+	cleanup_all_mobs()
+	for pylon in active_pylons:
+		if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
+			pylon.queue_free()
+	active_pylons.clear()
+	for vault in active_vaults:
+		if is_instance_valid(vault) and not vault.is_queued_for_deletion():
+			vault.queue_free()
+	active_vaults.clear()
+	for surge in active_surge_units:
+		if is_instance_valid(surge) and not surge.is_queued_for_deletion():
+			surge.queue_free()
+	active_surge_units.clear()
+
+	if is_inside_tree() and get_tree() != null:
+		for pylon in get_tree().get_nodes_in_group("pylons"):
+			if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
+				pylon.queue_free()
+		for vault in get_tree().get_nodes_in_group("vaults"):
+			if is_instance_valid(vault) and not vault.is_queued_for_deletion():
+				vault.queue_free()
+		for surge in get_tree().get_nodes_in_group("surge_units"):
+			if is_instance_valid(surge) and not surge.is_queued_for_deletion():
+				surge.queue_free()
+
+func init_stage(stage_idx: int) -> void:
+	current_stage_index = clampi(stage_idx, 0, STAGES.size() - 1)
+	state = GameState.PLAYING
+	cleanup_stage_entities()
+	var cfg: Dictionary = STAGES[current_stage_index]
+	highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
+	if is_instance_valid(giant_enemy):
+		var base_hp: int = int(cfg.get("base_hp", 1200))
+		giant_enemy.reset(base_hp)
+	if is_instance_valid(cannon):
+		cannon.reset()
+	red_spawn_timer = 0.0
+	time_elapsed = 0.0
+	if is_instance_valid(victory_banner):
+		victory_banner.visible = false
+	if is_instance_valid(defeat_banner):
+		defeat_banner.visible = false
+	_spawn_stage_layout(current_stage_index)
+
+func advance_stage() -> void:
+	if current_stage_index + 1 < STAGES.size():
+		init_stage(current_stage_index + 1)
+	else:
+		state = GameState.VICTORY
+		if victory_banner != null:
+			victory_banner.visible = true
+
+func _spawn_stage_layout(_stage_idx: int) -> void:
+	pass
+
 func reset_stage() -> void:
 	state = GameState.PLAYING
 	if is_instance_valid(giant_enemy):
@@ -316,7 +472,7 @@ func reset_stage() -> void:
 		cannon.reset()
 	red_spawn_timer = 0.0
 	time_elapsed = 0.0
-	cleanup_all_mobs()
+	cleanup_stage_entities()
 	if is_instance_valid(victory_banner):
 		victory_banner.visible = false
 	if is_instance_valid(defeat_banner):
