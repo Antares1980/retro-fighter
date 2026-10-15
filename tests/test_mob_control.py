@@ -245,6 +245,22 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func get_cleanup_bound_z()', self.main_script)
         self.assertIn("test_scenario_10_core_stage_config_and_dynamic_depth_highway", self.test_gd)
 
+    def test_shield_lock_state_machine_contract(self):
+        """Issue #45 / GWT 1, 2: Verify 3-Act Base Shield Lock state machine, Pylons, Counter-Surge, and 0-damage discard."""
+        self.assertIn('enum EntityMode { BASE, PYLON }', self.giant_script)
+        self.assertIn('var is_invulnerable: bool', self.giant_script)
+        self.assertIn('var is_shielded: bool', self.giant_script)
+        self.assertIn('func is_pylon()', self.giant_script)
+        self.assertIn('func _apply_damage_to_base(', self.main_script)
+        self.assertIn('func _trigger_shield_lock(', self.main_script)
+        self.assertIn('func _spawn_shield_pylon(', self.main_script)
+        self.assertIn('func _spawn_counter_surge_wave(', self.main_script)
+        self.assertIn('func _check_shield_release()', self.main_script)
+        self.assertIn('func _resolve_pylon_contacts()', self.main_script)
+        self.assertIn('func is_base_shielded()', self.main_script)
+        self.assertIn('func get_current_lock_act()', self.main_script)
+        self.assertIn("test_scenario_11_three_act_base_shield_lock_state_machine", self.test_gd)
+
 if __name__ == "__main__":
     unittest.main()
 
