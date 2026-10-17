@@ -802,7 +802,6 @@ func spawn_vault(arg1: Variant, arg2: Variant, target_gate: MultiplierGate3DScri
 	var vault: Node3D
 	if GiantEnemyScene != null:
 		var giant = GiantEnemyScene.instantiate() as GiantEnemy3DScript
-		giant.entity_mode = GiantEnemy3DScript.EntityMode.VAULT
 		giant.speed = 0.0
 		giant.hp = vault_hp
 		giant.max_hp = vault_hp
