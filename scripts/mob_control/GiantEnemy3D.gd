@@ -17,6 +17,17 @@ enum EntityMode { BASE, PYLON }
 @onready var label: Label3D = $Label3D if has_node("Label3D") else null
 @onready var health_bar: Node3D = $HealthBar if has_node("HealthBar") else null
 
+var target_gate: Node3D = null
+var blockaded_gate: Node3D:
+	get:
+		return target_gate
+	set(val):
+		target_gate = val
+
+var half_width: float = 2.0
+var half_depth: float = 1.25
+var half_height: float = 1.25
+
 func _ready() -> void:
 	collision_layer = 16
 	collision_mask = 2
@@ -27,6 +38,9 @@ func is_base() -> bool:
 
 func is_pylon() -> bool:
 	return entity_mode == EntityMode.PYLON
+
+func is_vault() -> bool:
+	return is_in_group("vaults")
 
 func take_damage(amount: int = 1) -> void:
 	if is_invulnerable or is_shielded:
@@ -43,6 +57,8 @@ func _update_ui() -> void:
 	if label != null:
 		if is_pylon():
 			label.text = "PYLON: %d" % hp
+		elif is_vault():
+			label.text = "VAULT: %d" % hp
 		elif is_shielded or is_invulnerable:
 			label.text = "SHIELDED: %d" % hp
 		else:
