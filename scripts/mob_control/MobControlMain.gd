@@ -659,13 +659,26 @@ func _evaluate_game_state() -> void:
 		state = GameState.DEFEAT
 		if defeat_banner != null:
 			defeat_banner.visible = true
+		if victory_banner != null:
+			victory_banner.visible = false
 		return
 
-	# Check Victory condition second (only when not in Defeat)
+	# Check Stage Clear or Campaign Victory second (only when not in Defeat)
 	if is_instance_valid(giant_enemy) and giant_enemy.hp <= 0:
-		state = GameState.VICTORY
-		if victory_banner != null:
-			victory_banner.visible = true
+		if current_stage_index < STAGES.size() - 1:
+			state = GameState.STAGE_CLEAR
+			if victory_banner != null:
+				victory_banner.text = "STAGE %d CLEAR!\nPRESS SPACE OR ENTER TO ADVANCE" % (current_stage_index + 1)
+				victory_banner.visible = true
+			if defeat_banner != null:
+				defeat_banner.visible = false
+		else:
+			state = GameState.VICTORY
+			if victory_banner != null:
+				victory_banner.text = "CAMPAIGN VICTORY!\nPRESS R TO RESTART OR ESC FOR MENU"
+				victory_banner.visible = true
+			if defeat_banner != null:
+				defeat_banner.visible = false
 
 func get_current_stage_config() -> Dictionary:
 	if current_stage_index >= 0 and current_stage_index < STAGES.size():
@@ -783,7 +796,10 @@ func advance_stage() -> void:
 	else:
 		state = GameState.VICTORY
 		if victory_banner != null:
+			victory_banner.text = "CAMPAIGN VICTORY!\nPRESS R TO RESTART OR ESC FOR MENU"
 			victory_banner.visible = true
+		if defeat_banner != null:
+			defeat_banner.visible = false
 
 func _spawn_stage_layout(stage_idx: int) -> void:
 	if auto_spawn_vaults:
@@ -906,22 +922,11 @@ func spawn_stage_vault(stage_idx: int) -> Node3D:
 		add_child(gate)
 	return spawn_vault_for_gate(gate, v_hp)
 
+func retry_stage() -> void:
+	init_stage(current_stage_index)
+
 func reset_stage() -> void:
-	state = GameState.PLAYING
-	current_lock_act = 1
-	shield_locks_enabled = false
-	if is_instance_valid(giant_enemy):
-		giant_enemy.reset(150)
-	if is_instance_valid(cannon):
-		cannon.reset()
-	red_spawn_timer = 0.0
-	time_elapsed = 0.0
-	cleanup_stage_entities()
-	if is_instance_valid(victory_banner):
-		victory_banner.visible = false
-	if is_instance_valid(defeat_banner):
-		defeat_banner.visible = false
-	_returning_to_menu = false
+	init_stage(current_stage_index)
 
 func return_to_menu() -> void:
 	if _returning_to_menu:
@@ -932,12 +937,29 @@ func return_to_menu() -> void:
 		get_tree().change_scene_to_file("res://scenes/Menu.tscn")
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE)):
 		return_to_menu()
 		if get_viewport():
 			get_viewport().set_input_as_handled()
-	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
-		if state != GameState.PLAYING:
-			reset_stage()
-			if get_viewport():
-				get_viewport().set_input_as_handled()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		var is_advance_or_retry_key: bool = (
+			event.keycode == KEY_SPACE or event.physical_keycode == KEY_SPACE or
+			event.keycode == KEY_ENTER or event.physical_keycode == KEY_ENTER or
+			event.keycode == KEY_KP_ENTER or event.physical_keycode == KEY_KP_ENTER or
+			event.keycode == KEY_R or event.physical_keycode == KEY_R
+		)
+		if is_advance_or_retry_key:
+			if state == GameState.STAGE_CLEAR:
+				advance_stage()
+				if get_viewport():
+					get_viewport().set_input_as_handled()
+			elif state == GameState.DEFEAT:
+				retry_stage()
+				if get_viewport():
+					get_viewport().set_input_as_handled()
+			elif state == GameState.VICTORY:
+				init_stage(0)
+				if get_viewport():
+					get_viewport().set_input_as_handled()
