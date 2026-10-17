@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Progression Loop, Input Latching, & Test Suite Migration for Mob Control 3D (Issue #47, Parent #43):
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Implemented event-driven fresh non-echo key-down input latching in `_unhandled_input(event: InputEvent)` for `KEY_SPACE`, `KEY_ENTER`, `KEY_KP_ENTER`, `KEY_R`, and `KEY_ESCAPE` / `ui_cancel`.
+    - Added held-SPACE latching on stage transition banners: continuous spacebar holding during gameplay firing does not prematurely dismiss banners or advance stages (GWT 5). Only a fresh non-echo key press advances stages or retries.
+    - Added Stage 5 Campaign Victory state transition (`GameState.VICTORY` triggered when Stage 5 Base HP reaches 0) displaying `"CAMPAIGN VICTORY!\nPRESS R TO RESTART OR ESC FOR MENU"` (GWT 6).
+    - Implemented campaign restart from victory: pressing `KEY_R` resets progression back to Stage 1 with full base HP and reset state machine.
+    - Updated `reset_stage()` and `retry_stage()` for clean stage reinitialization and same-tick defeat handling (GWT 5).
+  - Enhanced automated test suites:
+    - Added Scenario 13 (`test_scenario_13_progression_loop_input_latching_and_pacing`) to `tests/test_mob_control.gd` with 38 assertions validating GWT 5 (held-SPACE latching on clear and defeat, rejection of echo key and release events, stage advance across all keys), GWT 6 (Stage 5 Campaign Victory, restart to Stage 1, ESC menu return), and GWT 9 (mathematical pacing lower bounds: effective stage HP / max sustained DPS >= 180s, and vault HP / lane DPS >= 60s across all 5 stages).
+    - Migrated Scenarios 3, 5, 5b, 6, and 11 in `tests/test_mob_control.gd` per the Retirement Map to align with the 5-stage progression model and shield lock mechanics.
+    - Migrated `tests/test_mob_control.py` per the Retirement Map, replacing legacy single-phase `hp = 150` assertions with 5-stage progression loop validation and adding `test_progression_loop_input_latching_and_pacing_contract`.
 - Implemented High-HP Destructible Vaults & Two-Way Evolution Gates for Mob Control 3D (Issue #46, Parent #43):
   - In `scripts/mob_control/MultiplierGate3D.gd`:
     - Added locking state support (`is_locked`, `blockading_vault`, `is_active()`, `unlock()`, `lock(vault)`). When locked or blockaded by an active Vault, gates return 0 clones and refuse passage to Blue mobs until unlocked.

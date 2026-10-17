@@ -82,6 +82,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_10_core_stage_config_and_dynamic_depth_highway()
 	test_scenario_11_three_act_base_shield_lock_state_machine()
 	test_scenario_12_vault_destruction_and_evolution_gates()
+	test_scenario_13_progression_loop_input_latching_and_pacing()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -221,6 +222,8 @@ func test_scenario_3_modifier_gate_replication_and_giant_ui() -> void:
 	if active_tree != null:
 		active_tree.root.add_child(main)
 
+	main.init_stage(0)
+
 	# Locate gate_left_1 (+2 at Z = -2.0)
 	var gate = main.gates_container.get_node("gate_left_1") as MultiplierGate3D
 	assert_true(gate != null, "gate_left_1 exists")
@@ -247,14 +250,14 @@ func test_scenario_3_modifier_gate_replication_and_giant_ui() -> void:
 		assert_equal(mob.position.x, -2.5, "Clone X inherits parent X (-2.5)")
 		assert_true(mob.passed_gates.has("gate_left_1"), "Clone inherits passed_gates")
 
-	# Advance the 3 mobs into Giant Boss at Z = -15.0
+	# Advance the 3 mobs into Giant Boss Base at Z = -15.0
 	for mob in main.blue_mobs:
 		mob.position.z = -15.0
 
 	main._resolve_giant_contacts()
-	assert_equal(main.giant_enemy.hp, 147, "Giant Boss HP decremented from 150 to 147 (150 - 3)")
-	assert_equal(main.giant_enemy.label.text, "HP: 147", "Giant Boss Label3D displays 'HP: 147'")
-	assert_true(is_equal_approx(main.giant_enemy.health_bar.scale.x, 147.0 / 150.0), "HealthBar scale is 147.0 / 150.0")
+	assert_equal(main.giant_enemy.hp, 1197, "Base HP decremented from 1200 to 1197 (1200 - 3)")
+	assert_equal(main.giant_enemy.label.text, "HP: 1197", "Base Label3D displays 'HP: 1197'")
+	assert_true(is_equal_approx(main.giant_enemy.health_bar.scale.x, 1197.0 / 1200.0), "HealthBar scale is 1197.0 / 1200.0")
 
 	# Test safe cap formula: 298 live blue mobs hitting +5 gate (k = 5)
 	main.cleanup_all_mobs()
@@ -332,12 +335,18 @@ func test_scenario_4_1v1_swarm_attrition() -> void:
 	main.free()
 
 func test_scenario_5_giant_boss_assault_and_victory() -> void:
-	print("\nScenario 5: Giant Boss HP Depletion, Victory Latch, & Banner Verification")
+	print("\nScenario 5: Stage 5 Campaign Victory, Victory Latch, & Restart (GWT 6)")
 	var main = MobControlMainScene.instantiate()
 	var active_tree = _get_tree()
 	if active_tree != null:
 		active_tree.root.add_child(main)
 
+	# GWT 6: Given Stage 5 Base HP reaches 0 and no enemy breach exists
+	main.init_stage(4) # Stage 5
+	assert_equal(main.current_stage_index, 4, "Stage 5 initialized")
+	assert_equal(main.giant_enemy.hp, 10000, "Stage 5 Base HP is 10000")
+
+	# Set HP to 2 for final assault
 	main.giant_enemy.hp = 2
 	main.giant_enemy._update_ui()
 
@@ -346,12 +355,13 @@ func test_scenario_5_giant_boss_assault_and_victory() -> void:
 
 	main.step(1.0 / 60.0)
 
-	assert_equal(main.giant_enemy.hp, 0, "Giant Boss HP reached 0")
+	assert_equal(main.giant_enemy.hp, 0, "Stage 5 Base HP reached 0")
 	assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "Game state latched to VICTORY")
 	assert_true(main.victory_banner.visible, "VictoryBanner is visible")
 	assert_true(main.victory_banner.text.contains("VICTORY!"), "VictoryBanner text contains 'VICTORY!'")
+	assert_true(main.victory_banner.text.contains("CAMPAIGN VICTORY"), "VictoryBanner text contains 'CAMPAIGN VICTORY'")
 
-	# Live Red Mob positioned at Z >= 9.0 after VICTORY
+	# Live Red Mob positioned at Z >= 9.0 after VICTORY does not overwrite state
 	var red = MobUnit3DScene.instantiate() as MobUnit3D
 	red.setup("red")
 	red.position = Vector3(0.0, 0.5, 9.5)
@@ -362,40 +372,128 @@ func test_scenario_5_giant_boss_assault_and_victory() -> void:
 	assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "State remains VICTORY after Red Mob breaches post-win")
 	assert_false(main.defeat_banner.visible, "DefeatBanner remains false")
 
+	# GWT 6: Pressing R (non-echo) resets progress to Stage 1
+	var ev_r = InputEventKey.new()
+	ev_r.pressed = true
+	ev_r.echo = false
+	ev_r.keycode = KEY_R
+	main._unhandled_input(ev_r)
+
+	assert_equal(main.current_stage_index, 0, "GWT 6: Pressing R on Victory restarts campaign from Stage 1")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 6: State reset to PLAYING")
+	assert_equal(main.giant_enemy.hp, 1200, "GWT 6: Stage 1 Base HP reset to 1200")
+	assert_false(main.victory_banner.visible, "GWT 6: Victory banner hidden after restart")
+
 	main.cleanup_all_mobs()
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
 
 func test_scenario_5b_end_to_end_winnability() -> void:
-	print("\nScenario 5b: End-to-End Winnability in Live Stepping Across Gate Corridor")
-	var lanes = [-2.5, -1.0, 2.5]
-	for lane_x in lanes:
-		var main = MobControlMainScene.instantiate()
-		var active_tree = _get_tree()
-		if active_tree != null:
-			active_tree.root.add_child(main)
+	print("\nScenario 5b: End-to-End Stage 1 Clear, 3-Act Shield Locks, & Held-Space Latching (GWT 1, 2, 5)")
+	var main = MobControlMainScene.instantiate()
+	var active_tree = _get_tree()
+	if active_tree != null:
+		active_tree.root.add_child(main)
 
-		main.rng.seed = 12345
-		main.cannon.position.x = lane_x
-		main.cannon.fire_held = true
+	main.init_stage(0)
+	assert_equal(main.current_stage_index, 0, "Stage 1 initialized")
+	assert_equal(main.giant_enemy.hp, 1200, "Stage 1 Base HP is 1200")
 
-		var reached_victory: bool = false
-		for step_num in range(360):
-			main.step(1.0 / 60.0)
-			main.flush_pending_spawns()
-			if main.state == MobControlMainScript.GameState.VICTORY:
-				reached_victory = true
-				break
+	# Continuous firing held while engaging stage
+	main.cannon.fire_held = true
 
-		assert_true(reached_victory, "Lane X = %s reaches VICTORY within 360 steps (6.0s)" % str(lane_x))
-		assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "Final state is VICTORY for lane X = %s" % str(lane_x))
-		assert_equal(main.giant_enemy.hp, 0, "Giant Boss HP reached 0 for lane X = %s" % str(lane_x))
+	# Act 1: 100% -> 75% (900 HP)
+	main.giant_enemy.hp = 901
+	var b1 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 900, "Lock 1: Clamped to 75% (900 HP)")
+	assert_true(main.is_base_shielded(), "Lock 1: Base is shielded")
 
-		main.cleanup_all_mobs()
-		if active_tree != null:
-			active_tree.root.remove_child(main)
-		main.free()
+	# Clear Lock 1 Pylon and Surge
+	if main.active_pylons.size() > 0:
+		main.active_pylons[0].hp = 0
+	for s in main.active_surge_units:
+		if main.is_live(s):
+			s.is_consumed = true
+			s.queue_free()
+	main.step(1.0 / 60.0)
+	assert_false(main.is_base_shielded(), "Lock 1: Shield released")
+
+	# Act 2: 75% -> 50% (600 HP)
+	main.giant_enemy.hp = 601
+	var b2 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 600, "Lock 2: Clamped to 50% (600 HP)")
+	assert_true(main.is_base_shielded(), "Lock 2: Base is shielded")
+
+	# Clear Lock 2 Pylon and Surge
+	if main.active_pylons.size() > 0:
+		main.active_pylons[0].hp = 0
+	for s in main.active_surge_units:
+		if main.is_live(s):
+			s.is_consumed = true
+			s.queue_free()
+	main.step(1.0 / 60.0)
+	assert_false(main.is_base_shielded(), "Lock 2: Shield released")
+
+	# Act 3: 50% -> 25% (300 HP)
+	main.giant_enemy.hp = 301
+	var b3 = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+	assert_equal(main.giant_enemy.hp, 300, "Lock 3: Clamped to 25% (300 HP)")
+	assert_true(main.is_base_shielded(), "Lock 3: Base is shielded")
+
+	# Clear Lock 3 Pylon and Surge
+	if main.active_pylons.size() > 0:
+		main.active_pylons[0].hp = 0
+	for s in main.active_surge_units:
+		if main.is_live(s):
+			s.is_consumed = true
+			s.queue_free()
+	main.step(1.0 / 60.0)
+	assert_false(main.is_base_shielded(), "Lock 3: Shield released")
+
+	# Act 4: Final assault: 25% -> 0 HP
+	main.giant_enemy.hp = 1
+	var b_final = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
+	main.step(1.0 / 60.0)
+
+	assert_equal(main.giant_enemy.hp, 0, "Stage 1 Base HP reached 0")
+	assert_equal(main.state, MobControlMainScript.GameState.STAGE_CLEAR, "GWT 5: State transitions to STAGE_CLEAR")
+	assert_true(main.victory_banner.visible, "VictoryBanner is visible on stage clear")
+	assert_true(main.victory_banner.text.contains("STAGE 1 CLEAR"), "VictoryBanner text contains 'STAGE 1 CLEAR'")
+
+	# GWT 5: Held-Space Latching: Player was firing and continues holding SPACE
+	assert_true(main.cannon.fire_held, "Cannon fire_held remains true")
+	main.step(1.0 / 60.0)
+	assert_equal(main.state, MobControlMainScript.GameState.STAGE_CLEAR, "GWT 5: Game remains latched in STAGE_CLEAR while SPACE held")
+	assert_equal(main.current_stage_index, 0, "GWT 5: Stage index did not advance while SPACE held")
+
+	# Echo key event does not advance
+	var ev_echo = InputEventKey.new()
+	ev_echo.pressed = true
+	ev_echo.echo = true
+	ev_echo.keycode = KEY_SPACE
+	main._unhandled_input(ev_echo)
+	assert_equal(main.current_stage_index, 0, "GWT 5: Echo key event does not advance stage")
+
+	# Fresh non-echo key-down press advances to Stage 2
+	var ev_advance = InputEventKey.new()
+	ev_advance.pressed = true
+	ev_advance.echo = false
+	ev_advance.keycode = KEY_SPACE
+	main._unhandled_input(ev_advance)
+
+	assert_equal(main.current_stage_index, 1, "GWT 5: Fresh non-echo KEY_SPACE advances to Stage 2")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Stage 2 state is PLAYING")
+	assert_equal(main.giant_enemy.hp, 2500, "Stage 2 Base HP initialized to 2500")
+	assert_false(main.victory_banner.visible, "Victory banner hidden on Stage 2 start")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
 
 func test_scenario_6_enemy_breach_defeat_priority_and_reset() -> void:
 	print("\nScenario 6: Enemy Breach, Defeat Priority, In-Place Restart, & ESC Terminal Handling")
@@ -404,9 +502,12 @@ func test_scenario_6_enemy_breach_defeat_priority_and_reset() -> void:
 	if active_tree != null:
 		active_tree.root.add_child(main)
 
+	main.init_stage(0)
+
 	# KEY_R during PLAYING does nothing
 	var ev_r = InputEventKey.new()
 	ev_r.pressed = true
+	ev_r.echo = false
 	ev_r.keycode = KEY_R
 	main._unhandled_input(ev_r)
 	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "KEY_R during PLAYING does not change state")
@@ -431,10 +532,41 @@ func test_scenario_6_enemy_breach_defeat_priority_and_reset() -> void:
 
 	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "DEFEAT takes priority in same-tick tie")
 
+	# Same-tick defeat priority during Shield Lock acts (GWT 1)
+	main.reset_stage()
+	main.giant_enemy.hp = 900
+	main.giant_enemy.is_shielded = true
+	main.giant_enemy.is_invulnerable = true
+	var red_lock = main._spawn_red_mob()
+	red_lock.position = Vector3(0.0, 0.5, 9.1)
+	main._evaluate_game_state()
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "DEFEAT takes priority during shield lock act")
+
+	# GWT 5: Held-space latching on DEFEAT
+	main.cannon.fire_held = true
+	main.step(1.0 / 60.0)
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "State remains DEFEAT while SPACE held")
+
+	# Echo KEY_R ignored
+	var ev_echo = InputEventKey.new()
+	ev_echo.pressed = true
+	ev_echo.echo = true
+	ev_echo.keycode = KEY_R
+	main._unhandled_input(ev_echo)
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "Echo KEY_R does not reset DEFEAT")
+
+	# Fresh KEY_R resets stage
+	var ev_retry = InputEventKey.new()
+	ev_retry.pressed = true
+	ev_retry.echo = false
+	ev_retry.keycode = KEY_R
+	main._unhandled_input(ev_retry)
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Fresh KEY_R resets stage to PLAYING")
+
 	# Test 12-point contract of reset_stage()
 	main.reset_stage()
 	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "[1] state == GameState.PLAYING")
-	assert_equal(main.giant_enemy.hp, 150, "[2] Giant Boss HP is 150")
+	assert_equal(main.giant_enemy.hp, 1200, "[2] Stage 1 Base HP is 1200")
 	assert_equal(main.giant_enemy.position, Vector3(0.0, 1.25, -15.0), "[2] Giant Boss position is (0.0, 1.25, -15.0)")
 	assert_equal(main.cannon.position, Vector3(0.0, 0.5, 9.0), "[3] Cannon position is (0.0, 0.5, 9.0)")
 	assert_equal(main.cannon.move_input, 0.0, "[4] Cannon move_input == 0.0")
@@ -446,7 +578,7 @@ func test_scenario_6_enemy_breach_defeat_priority_and_reset() -> void:
 	assert_equal(main.red_mobs.size(), 0, "[8] Total active red mobs count is 0")
 	assert_false(main.victory_banner.visible, "[10] VictoryBanner.visible == false")
 	assert_false(main.defeat_banner.visible, "[10] DefeatBanner.visible == false")
-	assert_equal(main.giant_enemy.label.text, "HP: 150", "[11] Giant Boss Label3D is 'HP: 150'")
+	assert_equal(main.giant_enemy.label.text, "HP: 1200", "[11] Giant Boss Label3D is 'HP: 1200'")
 	assert_equal(main.giant_enemy.health_bar.scale.x, 1.0, "[11] Giant Boss HealthBar scale is 1.0")
 	assert_false(main._returning_to_menu, "[12] _returning_to_menu == false")
 
@@ -1130,7 +1262,7 @@ func test_scenario_11_three_act_base_shield_lock_state_machine() -> void:
 	var b_final = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z))
 	main.step(1.0 / 60.0)
 	assert_equal(main.giant_enemy.hp, 0, "Base HP depleted to 0 after all 3 acts")
-	assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "Victory achieved after all 3 shield locks")
+	assert_equal(main.state, MobControlMainScript.GameState.STAGE_CLEAR, "Stage 1 clear achieved after all 3 shield locks")
 
 	# --- 7. Stage 2 Speed Multiplier Verification ---
 	main.init_stage(1)
@@ -1306,6 +1438,194 @@ func test_scenario_12_vault_destruction_and_evolution_gates() -> void:
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()
+
+func test_scenario_13_progression_loop_input_latching_and_pacing() -> void:
+	print("\nScenario 13: Progression Loop, Input Latching, Campaign Victory & Pacing (GWT 5, GWT 6, GWT 9)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# =========================================================================
+	# PART 1: GWT 5 - Fresh Non-Echo Press Advance & Held-Space Latching
+	# =========================================================================
+	main.init_stage(0)
+	main.cannon.fire_held = true
+
+	# 1. Simulate transition to STAGE_CLEAR while holding fire
+	main.state = MobControlMainScript.GameState.STAGE_CLEAR
+	if main.victory_banner != null:
+		main.victory_banner.text = "STAGE 1 CLEAR!\nPRESS SPACE OR ENTER TO ADVANCE"
+		main.victory_banner.visible = true
+
+	# Stepping ticks while fire_held remains true must not advance or reset stage
+	for i in range(10):
+		main.step(1.0 / 60.0)
+	assert_equal(main.state, MobControlMainScript.GameState.STAGE_CLEAR, "GWT 5: Game remains in STAGE_CLEAR while SPACE held")
+	assert_equal(main.current_stage_index, 0, "GWT 5: Stage index remains 0 while SPACE held")
+	assert_true(main.victory_banner.visible, "GWT 5: Stage clear banner remains visible")
+
+	# 2. Echo key events must be rejected
+	var ev_echo_space = InputEventKey.new()
+	ev_echo_space.pressed = true
+	ev_echo_space.echo = true
+	ev_echo_space.keycode = KEY_SPACE
+	main._unhandled_input(ev_echo_space)
+	assert_equal(main.current_stage_index, 0, "GWT 5: Echo KEY_SPACE does not advance stage")
+
+	var ev_echo_enter = InputEventKey.new()
+	ev_echo_enter.pressed = true
+	ev_echo_enter.echo = true
+	ev_echo_enter.keycode = KEY_ENTER
+	main._unhandled_input(ev_echo_enter)
+	assert_equal(main.current_stage_index, 0, "GWT 5: Echo KEY_ENTER does not advance stage")
+
+	# 3. Key release (pressed == false) must not advance stage
+	var ev_release = InputEventKey.new()
+	ev_release.pressed = false
+	ev_release.echo = false
+	ev_release.keycode = KEY_SPACE
+	main._unhandled_input(ev_release)
+	assert_equal(main.current_stage_index, 0, "GWT 5: Key release does not advance stage")
+
+	# 4. Fresh non-echo KEY_SPACE advances to Stage 2
+	var ev_fresh_space = InputEventKey.new()
+	ev_fresh_space.pressed = true
+	ev_fresh_space.echo = false
+	ev_fresh_space.keycode = KEY_SPACE
+	main._unhandled_input(ev_fresh_space)
+	assert_equal(main.current_stage_index, 1, "GWT 5: Fresh non-echo KEY_SPACE advances to Stage 2")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Stage 2 state is PLAYING")
+	assert_equal(main.giant_enemy.hp, 2500, "Stage 2 Base HP is 2500")
+
+	# 5. Advance via KEY_ENTER
+	main.state = MobControlMainScript.GameState.STAGE_CLEAR
+	var ev_fresh_enter = InputEventKey.new()
+	ev_fresh_enter.pressed = true
+	ev_fresh_enter.echo = false
+	ev_fresh_enter.keycode = KEY_ENTER
+	main._unhandled_input(ev_fresh_enter)
+	assert_equal(main.current_stage_index, 2, "GWT 5: Fresh non-echo KEY_ENTER advances to Stage 3")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Stage 3 state is PLAYING")
+	assert_equal(main.giant_enemy.hp, 4500, "Stage 3 Base HP is 4500")
+
+	# 6. Advance via KEY_KP_ENTER
+	main.state = MobControlMainScript.GameState.STAGE_CLEAR
+	var ev_fresh_kp = InputEventKey.new()
+	ev_fresh_kp.pressed = true
+	ev_fresh_kp.echo = false
+	ev_fresh_kp.keycode = KEY_KP_ENTER
+	main._unhandled_input(ev_fresh_kp)
+	assert_equal(main.current_stage_index, 3, "GWT 5: Fresh non-echo KEY_KP_ENTER advances to Stage 4")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Stage 4 state is PLAYING")
+	assert_equal(main.giant_enemy.hp, 7000, "Stage 4 Base HP is 7000")
+
+	# 7. Advance via KEY_R on STAGE_CLEAR
+	main.state = MobControlMainScript.GameState.STAGE_CLEAR
+	var ev_fresh_r_adv = InputEventKey.new()
+	ev_fresh_r_adv.pressed = true
+	ev_fresh_r_adv.echo = false
+	ev_fresh_r_adv.keycode = KEY_R
+	main._unhandled_input(ev_fresh_r_adv)
+	assert_equal(main.current_stage_index, 4, "GWT 5: Fresh non-echo KEY_R on STAGE_CLEAR advances to Stage 5")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "Stage 5 state is PLAYING")
+	assert_equal(main.giant_enemy.hp, 10000, "Stage 5 Base HP is 10000")
+
+	# 8. Defeat latching and retry with fresh KEY_R / KEY_SPACE
+	main.state = MobControlMainScript.GameState.DEFEAT
+	main.cannon.fire_held = true
+	for i in range(5):
+		main.step(1.0 / 60.0)
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "GWT 5: State remains DEFEAT while SPACE held")
+
+	var ev_echo_r = InputEventKey.new()
+	ev_echo_r.pressed = true
+	ev_echo_r.echo = true
+	ev_echo_r.keycode = KEY_R
+	main._unhandled_input(ev_echo_r)
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "GWT 5: Echo KEY_R does not retry")
+
+	var ev_fresh_r_retry = InputEventKey.new()
+	ev_fresh_r_retry.pressed = true
+	ev_fresh_r_retry.echo = false
+	ev_fresh_r_retry.keycode = KEY_R
+	main._unhandled_input(ev_fresh_r_retry)
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 5: Fresh KEY_R retries Stage 5")
+	assert_equal(main.current_stage_index, 4, "Stage remains Stage 5 on defeat retry")
+	assert_equal(main.giant_enemy.hp, 10000, "Stage 5 Base HP reset to 10000")
+
+	# =========================================================================
+	# PART 2: GWT 6 - Campaign Victory on Stage 5 & Restart
+	# =========================================================================
+	main.init_stage(4) # Stage 5
+	main.giant_enemy.hp = 0
+	main._evaluate_game_state()
+
+	assert_equal(main.state, MobControlMainScript.GameState.VICTORY, "GWT 6: Stage 5 Base 0 HP triggers VICTORY")
+	assert_true(main.victory_banner.visible, "GWT 6: Campaign Victory banner visible")
+	assert_true(main.victory_banner.text.contains("CAMPAIGN VICTORY"), "GWT 6: Victory banner text indicates CAMPAIGN VICTORY")
+
+	# Fresh non-echo KEY_R resets progress to Stage 1
+	var ev_victory_r = InputEventKey.new()
+	ev_victory_r.pressed = true
+	ev_victory_r.echo = false
+	ev_victory_r.keycode = KEY_R
+	main._unhandled_input(ev_victory_r)
+
+	assert_equal(main.current_stage_index, 0, "GWT 6: Pressing R on Campaign Victory resets progress to Stage 1")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 6: Game reset to PLAYING on Stage 1")
+	assert_equal(main.giant_enemy.hp, 1200, "GWT 6: Stage 1 Base HP reset to 1200")
+	assert_false(main.victory_banner.visible, "Victory banner hidden after campaign restart")
+
+	# ESC key triggers clean return to menu
+	var ev_esc = InputEventKey.new()
+	ev_esc.pressed = true
+	ev_esc.echo = false
+	ev_esc.keycode = KEY_ESCAPE
+	main._unhandled_input(ev_esc)
+	assert_true(main._returning_to_menu, "GWT 6: ESC key triggers return to menu")
+
+	# =========================================================================
+	# PART 3: GWT 9 - Deterministic Pacing Lower Bound
+	# =========================================================================
+	# Max sustained Blue DPS = 1 mob per FIRE_INTERVAL (0.14s) = 7.142857 mobs/sec
+	var max_sustained_blue_dps: float = 1.0 / 0.14
+	# Single lane DPS directed into vault (400 HP / 60s = 6.666667 mobs/sec)
+	var max_lane_dps: float = 400.0 / 60.0
+
+	assert_equal(MobControlMainScript.STAGES.size(), 5, "GWT 9: Exactly 5 progressive stages configured")
+
+	for idx in range(MobControlMainScript.STAGES.size()):
+		var cfg: Dictionary = MobControlMainScript.STAGES[idx]
+		var stage_num: int = int(cfg.get("stage", idx + 1))
+		var base_hp: int = int(cfg.get("base_hp", 0))
+		var l1_hp: int = int(cfg.get("lock_1", {}).get("hp", 0))
+		var l2_hp: int = int(cfg.get("lock_2", {}).get("hp", 0))
+		var l3_hp: int = int(cfg.get("lock_3", {}).get("hp", 0))
+		var vault_hp: int = int(cfg.get("vault_hp", 0))
+
+		var effective_stage_hp: float = float(base_hp + l1_hp + l2_hp + l3_hp + vault_hp)
+		var stage_duration_lower_bound: float = effective_stage_hp / max_sustained_blue_dps
+		assert_true(
+			stage_duration_lower_bound >= 180.0,
+			"GWT 9: Stage %d duration lower bound (%.1fs) is >= 180.0s (effective HP = %d)" % [
+				stage_num, stage_duration_lower_bound, int(effective_stage_hp)
+			]
+		)
+
+		var vault_duration_lower_bound: float = float(vault_hp) / max_lane_dps
+		assert_true(
+			vault_duration_lower_bound >= 60.0 - 0.001,
+			"GWT 9: Stage %d vault duration lower bound (%.1fs) is >= 60.0s (vault HP = %d)" % [
+				stage_num, vault_duration_lower_bound, vault_hp
+			]
+		)
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
 
 
 

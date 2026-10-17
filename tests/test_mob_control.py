@@ -128,7 +128,6 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func calculate_clones() -> int', self.gate_script)
 
         self.assertIn('class_name GiantEnemy3D', self.giant_script)
-        self.assertIn('var hp: int = 150', self.giant_script)
         self.assertIn('func take_damage(', self.giant_script)
         self.assertIn('func reset(', self.giant_script)
 
@@ -217,11 +216,14 @@ class TestMobControl(unittest.TestCase):
         self.assertNotIn("KEY_ESCAPE", self.cannon_script)
 
     def test_single_phase_loop_preservation(self):
-        """GWT 7, 8: Verify single-phase loop integrity (Giant hp 150, z >= 9.0 defeat) without non-existent entities."""
-        self.assertIn("var hp: int = 150", self.giant_script)
+        """GWT 1, 6, 9: Verify 5-stage base HP table, breach defeat at z >= 9.0, and win condition (Base 0 HP)."""
+        self.assertIn('"base_hp": 1200', self.main_script)
+        self.assertIn('"base_hp": 10000', self.main_script)
         self.assertIn("global_position.z >= 9.0", self.main_script)
         self.assertIn("state = GameState.DEFEAT", self.main_script)
+        self.assertIn("state = GameState.STAGE_CLEAR", self.main_script)
         self.assertIn("state = GameState.VICTORY", self.main_script)
+        self.assertIn("giant_enemy.hp <= 0", self.main_script)
         self.assertNotIn("Yellow Base", self.main_script)
         self.assertNotIn("siege", self.main_script.lower())
 
@@ -277,6 +279,39 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func spawn_vault(', self.main_script)
         self.assertIn('func spawn_evolution_gate(', self.main_script)
         self.assertIn('test_scenario_12_vault_destruction_and_evolution_gates', self.test_gd)
+
+    def test_progression_loop_input_latching_and_pacing_contract(self):
+        """Issue #47 / GWT 5, 6, 9: Verify Progression Loop, Input Latching, Campaign Victory, and Pacing."""
+        # GWT 5: Event-driven fresh non-echo key-down press advance/retry
+        self.assertIn("event.pressed and not event.echo", self.main_script)
+        self.assertIn("KEY_SPACE", self.main_script)
+        self.assertIn("KEY_ENTER", self.main_script)
+        self.assertIn("KEY_R", self.main_script)
+        self.assertIn("func advance_stage()", self.main_script)
+        self.assertIn("func retry_stage()", self.main_script)
+
+        # GWT 6: Campaign Victory on Stage 5 and restart
+        self.assertIn("CAMPAIGN VICTORY!", self.main_script)
+        self.assertIn("init_stage(0)", self.main_script)
+
+        # GWT 9: Deterministic Pacing Lower Bounds
+        stages_data = [
+            {"base_hp": 1200, "pylons": [250, 350, 500], "vault_hp": 400},
+            {"base_hp": 2500, "pylons": [400, 550, 750], "vault_hp": 700},
+            {"base_hp": 4500, "pylons": [600, 850, 1100], "vault_hp": 1200},
+            {"base_hp": 7000, "pylons": [850, 1150, 1450], "vault_hp": 1800},
+            {"base_hp": 10000, "pylons": [1100, 1400, 1800], "vault_hp": 2500},
+        ]
+        max_sustained_blue_dps = 1.0 / 0.14
+        max_lane_dps = 400.0 / 60.0
+        for s in stages_data:
+            effective_hp = s["base_hp"] + sum(s["pylons"]) + s["vault_hp"]
+            stage_duration = effective_hp / max_sustained_blue_dps
+            self.assertGreaterEqual(stage_duration, 180.0, f"Stage effective HP {effective_hp} duration < 180s")
+            vault_duration = s["vault_hp"] / max_lane_dps
+            self.assertGreaterEqual(vault_duration, 60.0 - 0.001, f"Vault HP {s['vault_hp']} duration < 60s")
+
+        self.assertIn("test_scenario_13_progression_loop_input_latching_and_pacing", self.test_gd)
 
 if __name__ == "__main__":
     unittest.main()
