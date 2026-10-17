@@ -81,6 +81,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_9_freed_instance_safety_and_pruning()
 	test_scenario_10_core_stage_config_and_dynamic_depth_highway()
 	test_scenario_11_three_act_base_shield_lock_state_machine()
+	test_scenario_12_vault_destruction_and_evolution_gates()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -1148,6 +1149,160 @@ func test_scenario_11_three_act_base_shield_lock_state_machine() -> void:
 		assert_true(abs(s_mob.speed - exp_spd) < 0.001, "Stage 2 Lock 2 surge mob speed matches 1.05x multiplier")
 
 	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
+func test_scenario_12_vault_destruction_and_evolution_gates() -> void:
+	print("\nScenario 12: High-HP Destructible Vaults & Two-Way Evolution Gates (GWT 3, GWT 4)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# =========================================================================
+	# PART 1: GWT 3 - Destructible Vault Blockade, Destruction, & Gate Activation
+	# =========================================================================
+	main.init_stage(0)
+	main.cleanup_all_mobs()
+
+	# 1. Setup a high-yield gate (x4, as in Stage 1/2)
+	var gate_x4 = MultiplierGate3DScene.instantiate()
+	gate_x4.gate_id = "test_vault_gate_x4"
+	gate_x4.operation = "x"
+	gate_x4.value = 4
+	gate_x4.position = Vector3(2.5, 1.0, -5.0)
+	main.add_child(gate_x4)
+	gate_x4.update_label()
+
+	# 2. Spawn a High-HP Vault blockading the gate (Stage 1 vault_hp = 400)
+	var vault = main.spawn_vault_for_gate(gate_x4, 400)
+	assert_true(is_instance_valid(vault), "Vault entity spawned successfully")
+	assert_equal(vault.hp, 400, "Vault HP initialized to 400")
+	assert_equal(vault.max_hp, 400, "Vault max_hp initialized to 400")
+	assert_true(vault.is_in_group("vaults"), "Vault is in 'vaults' group")
+	assert_equal(main.active_vaults.size(), 1, "main.active_vaults contains the vault")
+	assert_true(gate_x4.is_locked, "Gate is_locked is true while blockaded")
+	assert_false(gate_x4.is_active(), "Gate is_active() returns false while blockaded")
+
+	# 3. Blue mob hits the Vault: inflicts 1 damage and is consumed; gate produces 0 clones; base takes 0 damage
+	var initial_base_hp: int = main.giant_enemy.hp
+	var b_mob1 = main._spawn_blue_mob(Vector3(vault.global_position.x, 0.5, vault.global_position.z))
+	assert_equal(main.get_live_blue_mobs_count(), 1, "1 blue mob spawned at vault position")
+
+	main.step(1.0 / 60.0)
+
+	assert_equal(vault.hp, 399, "GWT 3: Blue mob inflicts 1 damage to Vault (400 -> 399)")
+	assert_false(main.is_live(b_mob1), "GWT 3: Blue mob colliding with Vault is consumed and freed")
+	assert_equal(main.pending_spawns, 0, "GWT 3: 0 clones queued while gate is blockaded")
+	assert_equal(main.giant_enemy.hp, initial_base_hp, "GWT 3: Base HP undamaged while vault absorbs hit")
+	assert_false(gate_x4.is_active(), "Gate remains inactive while vault has HP > 0")
+
+	# 4. Multi-mob damage reducing Vault HP down to 1
+	vault.hp = 1
+	if vault.has_method("_update_ui"):
+		vault._update_ui()
+	assert_equal(vault.hp, 1, "Vault HP manually adjusted to 1 for destruction test")
+
+	# 5. Blue mob delivers killing blow to Vault
+	var b_killer = main._spawn_blue_mob(Vector3(vault.global_position.x, 0.5, vault.global_position.z))
+	main.step(1.0 / 60.0)
+
+	assert_false(main.is_live(b_killer), "Killer blue mob consumed on impact")
+	assert_equal(main.active_vaults.size(), 0, "GWT 3: Destroyed Vault removed from active_vaults")
+	assert_false(gate_x4.is_locked, "GWT 3: Gate is_locked set to false on Vault destruction")
+	assert_true(gate_x4.is_active(), "GWT 3: Gate is_active() returns true after Vault destruction")
+
+	# 6. Unlocked high-yield gate now multiplies passing blue mobs
+	main.cleanup_all_mobs()
+	var b_pass = main._spawn_blue_mob(Vector3(gate_x4.global_position.x, 0.5, gate_x4.global_position.z + 0.1))
+	assert_equal(main.get_live_blue_mobs_count(), 1, "1 blue mob approaching unlocked gate")
+
+	main.step(1.0 / 60.0)
+
+	# calculate_clones for x4: value - 1 = 4 - 1 = 3 clones
+	assert_equal(main.pending_spawns, 3, "GWT 3: Unlocked x4 gate queues 3 clones for passing blue mob")
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 4, "GWT 3: 4 total blue mobs exist after passing x4 gate (1 parent + 3 clones)")
+	assert_true(b_pass.passed_gates.has(gate_x4.gate_id), "Parent mob recorded passed_gate")
+
+	# =========================================================================
+	# PART 2: GWT 4 - Evolution Gate Feeding, Upgrading, and Red Sabotage
+	# =========================================================================
+	main.cleanup_all_mobs()
+
+	# 1. Create an Evolution Gate starting at +1
+	var evo_gate = main.spawn_evolution_gate(Vector3(-2.5, 1.0, -4.0), 1, "test_evo_gate")
+	assert_true(is_instance_valid(evo_gate), "Evolution Gate spawned successfully")
+	assert_true(evo_gate.is_evolution_gate, "evo_gate.is_evolution_gate is true")
+	assert_equal(evo_gate.level, 1, "GWT 4: Evolution Gate starts at level +1")
+	assert_equal(evo_gate.progress, 0, "GWT 4: Evolution Gate starts at progress 0")
+	assert_equal(evo_gate.value, 1, "Evolution Gate initial value is 1")
+	assert_equal(evo_gate.operation, "+", "Evolution Gate initial operation is '+'")
+
+	# 2. Feed 29 blue mobs: progress increases to 29, level remains +1
+	for i in range(29):
+		evo_gate.feed_blue(1)
+	assert_equal(evo_gate.progress, 29, "Progress reaches 29 after 29 blue units")
+	assert_equal(evo_gate.level, 1, "Level remains +1 before 30 units")
+	assert_equal(evo_gate.value, 1, "Multiplier value remains 1")
+
+	# 3. Feed 30th blue mob: multiplier upgrades to +2!
+	evo_gate.feed_blue(1)
+	assert_equal(evo_gate.progress, 30, "Progress reaches 30 after 30th blue unit")
+	assert_equal(evo_gate.level, 2, "GWT 4: Multiplier upgrades to +2 upon 30 blue units")
+	assert_equal(evo_gate.value, 2, "Multiplier value is 2")
+	assert_equal(evo_gate.calculate_clones(), 2, "Gate calculate_clones() returns 2 for +2 gate")
+
+	# 4. In-corridor passing verification at +2: 1 blue mob yields 2 clones (total 3 mobs)
+	main.cleanup_all_mobs()
+	var b_evo = main._spawn_blue_mob(Vector3(evo_gate.global_position.x, 0.5, evo_gate.global_position.z))
+	main.on_mob_entered_gate(b_evo, evo_gate)
+	assert_equal(evo_gate.progress, 31, "Blue mob passing gate feeds +1 progress (30 -> 31)")
+	assert_equal(main.pending_spawns, 2, "GWT 4: +2 gate yields 2 clones for passing blue mob")
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 3, "Total 3 blue mobs produced from +2 gate")
+
+	# 5. Red Sabotage: 1:1 sabotage reduces progress and downgrades gate
+	evo_gate.sabotage_red(1)
+	assert_equal(evo_gate.progress, 30, "1 red sabotage reduces progress to 30")
+	assert_equal(evo_gate.level, 2, "Level remains 2 at exactly 30 progress")
+
+	evo_gate.sabotage_red(1)
+	assert_equal(evo_gate.progress, 29, "GWT 4: Red sabotage reduces progress below 30 (to 29)")
+	assert_equal(evo_gate.level, 1, "GWT 4: Gate multiplier drops back to +1")
+	assert_equal(evo_gate.value, 1, "Gate value drops back to 1")
+
+	# 6. Red Mob pass-through integration via contact resolution:
+	main.cleanup_all_mobs()
+	var r_mob = main._spawn_red_mob()
+	r_mob.position = Vector3(evo_gate.global_position.x, 0.5, evo_gate.global_position.z)
+	var prev_prog: int = evo_gate.progress
+	main.step(1.0 / 60.0)
+
+	assert_equal(evo_gate.progress, prev_prog - 1, "GWT 4: Passing red mob sabotages gate progress by 1 (29 -> 28)")
+	assert_true(main.is_live(r_mob), "GWT 4: Red mob is NOT consumed by passing through evolution gate")
+	assert_true(r_mob.passed_gates.has(evo_gate.gate_id), "Red mob recorded passed_gate to avoid multi-sabotage")
+	assert_equal(main.pending_spawns, 0, "GWT 4: Red mob does not trigger gate clone spawning")
+
+	# 7. Floor constraint verification: level >= 1, progress >= 0
+	for i in range(50):
+		evo_gate.sabotage_red(1)
+	assert_equal(evo_gate.progress, 0, "GWT 4: Progress cannot drop below floor 0 (progress >= 0)")
+	assert_equal(evo_gate.level, 1, "GWT 4: Level cannot drop below floor 1 (level >= 1)")
+	assert_equal(evo_gate.value, 1, "Gate value clamped at minimum 1")
+
+	# 8. Cap constraint verification: cap at +15
+	for i in range(500):
+		evo_gate.feed_blue(1)
+	assert_equal(evo_gate.level, 15, "GWT 4: Gate level capped strictly at +15")
+	assert_equal(evo_gate.value, 15, "Gate value capped at 15")
+	assert_true(evo_gate.progress <= 14 * 30, "GWT 4: Progress bounded at max tier cap")
+
+	# Clean up stage and test nodes
+	main.cleanup_stage_entities()
+	gate_x4.queue_free()
+	evo_gate.queue_free()
 	if active_tree != null:
 		active_tree.root.remove_child(main)
 	main.free()

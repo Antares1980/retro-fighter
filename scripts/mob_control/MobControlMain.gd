@@ -102,6 +102,7 @@ var active_vaults: Array[Node3D] = []
 var active_surge_units: Array = []
 var current_lock_act: int = 1
 var shield_locks_enabled: bool = false
+var auto_spawn_vaults: bool = false
 
 var state: GameState = GameState.PLAYING
 var _returning_to_menu: bool = false
@@ -117,6 +118,7 @@ const MultiplierGate3DScript = preload("res://scripts/mob_control/MultiplierGate
 const MobUnit3DScript = preload("res://scripts/mob_control/MobUnit3D.gd")
 const MobUnitScene = preload("res://scenes/mob_control/MobUnit3D.tscn")
 const GiantEnemyScene = preload("res://scenes/mob_control/GiantEnemy3D.tscn")
+const MultiplierGate3DScene = preload("res://scenes/mob_control/MultiplierGate3D.tscn")
 
 var blue_mobs: Array[MobUnit3DScript] = []
 var red_mobs: Array[MobUnit3DScript] = []
@@ -176,6 +178,9 @@ func step(delta: float) -> void:
 	for i in range(active_surge_units.size() - 1, -1, -1):
 		if not is_instance_valid(active_surge_units[i]):
 			active_surge_units.remove_at(i)
+	for i in range(active_vaults.size() - 1, -1, -1):
+		if not is_instance_valid(active_vaults[i]):
+			active_vaults.remove_at(i)
 
 	# --- Phase 1: Motion & Spawner ---
 	if is_instance_valid(cannon):
@@ -198,6 +203,12 @@ func step(delta: float) -> void:
 			var p_spd: float = pylon.speed if ("speed" in pylon and pylon.speed > 0.0) else GIANT_SPEED
 			pylon.position.z += p_spd * delta
 
+	for vault in active_vaults:
+		if is_instance_valid(vault) and not vault.is_queued_for_deletion():
+			var v_spd: float = vault.speed if ("speed" in vault and vault.speed > 0.0) else 0.0
+			if v_spd > 0.0:
+				vault.position.z += v_spd * delta
+
 	time_elapsed += delta
 	red_spawn_timer += delta
 	while red_spawn_timer >= RED_SPAWN_START_TIME:
@@ -205,6 +216,7 @@ func step(delta: float) -> void:
 		_spawn_red_mob()
 
 	# --- Phase 2: Explicit Contact Resolution Pass ---
+	_resolve_vault_contacts()
 	_resolve_gate_contacts()
 	_resolve_mob_clashes()
 	_resolve_pylon_contacts()
@@ -245,9 +257,21 @@ func _spawn_red_mob() -> MobUnit3DScript:
 	return mob
 
 func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> void:
-	if not is_live(mob) or mob.passed_gates.has(gate.gate_id):
+	if mob != null and "team" in mob and mob.team == "red":
+		on_red_mob_entered_gate(mob, gate)
 		return
-	mob.passed_gates[gate.gate_id] = true
+	var gid: String = gate.gate_id if gate.gate_id != "" else str(gate.get_instance_id())
+	if not is_live(mob) or mob.passed_gates.has(gid) or (gate.gate_id != "" and mob.passed_gates.has(gate.gate_id)):
+		return
+	if not gate.is_active():
+		return
+
+	mob.passed_gates[gid] = true
+	if gate.gate_id != "":
+		mob.passed_gates[gate.gate_id] = true
+
+	if gate.is_evolution_gate:
+		gate.feed_blue(1)
 
 	var k: int = gate.calculate_clones()
 	var remaining_space: int = MAX_MOBS - (get_live_blue_mobs_count() + pending_spawns)
@@ -264,6 +288,17 @@ func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> 
 		}
 		pending_spawn_queue.append(clone_data)
 		call_deferred("_deferred_spawn_clone", clone_data)
+
+func on_red_mob_entered_gate(red: MobUnit3DScript, gate: MultiplierGate3DScript) -> void:
+	var gid: String = gate.gate_id if gate.gate_id != "" else str(gate.get_instance_id())
+	if not is_live(red) or red.passed_gates.has(gid) or (gate.gate_id != "" and red.passed_gates.has(gate.gate_id)):
+		return
+	red.passed_gates[gid] = true
+	if gate.gate_id != "":
+		red.passed_gates[gate.gate_id] = true
+
+	if gate.is_evolution_gate:
+		gate.sabotage_red(1)
 
 func _deferred_spawn_clone(clone_data: Dictionary) -> void:
 	var idx = pending_spawn_queue.find(clone_data)
@@ -305,6 +340,60 @@ func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
 			if idx != -1:
 				active_pylons.remove_at(idx)
 			_check_shield_release()
+
+func on_mob_hit_vault(blue: MobUnit3DScript, vault: Node3D) -> void:
+	if not is_live(blue):
+		return
+	blue.is_consumed = true
+	blue.queue_free()
+	if is_instance_valid(vault):
+		if vault.has_method("take_damage"):
+			vault.take_damage(1)
+		elif "hp" in vault:
+			vault.hp = maxi(0, vault.hp - 1)
+			if vault.has_method("_update_ui"):
+				vault._update_ui()
+		if "hp" in vault and vault.hp <= 0:
+			_destroy_vault(vault)
+
+func _destroy_vault(vault: Node3D) -> void:
+	if not is_instance_valid(vault):
+		return
+	var gate = null
+	if "target_gate" in vault and is_instance_valid(vault.target_gate):
+		gate = vault.target_gate
+	elif "blockaded_gate" in vault and is_instance_valid(vault.blockaded_gate):
+		gate = vault.blockaded_gate
+	elif vault.has_meta("target_gate"):
+		gate = vault.get_meta("target_gate")
+	elif vault.has_meta("blockaded_gate"):
+		gate = vault.get_meta("blockaded_gate")
+
+	if is_instance_valid(gate):
+		if "is_locked" in gate:
+			gate.is_locked = false
+		if "blockading_vault" in gate and gate.blockading_vault == vault:
+			gate.blockading_vault = null
+		if gate.has_method("unlock"):
+			gate.unlock()
+		if gate.has_method("update_label"):
+			gate.update_label()
+
+	for g in get_all_gates():
+		if is_instance_valid(g) and "blockading_vault" in g and g.blockading_vault == vault:
+			if "is_locked" in g:
+				g.is_locked = false
+			g.blockading_vault = null
+			if g.has_method("unlock"):
+				g.unlock()
+			if g.has_method("update_label"):
+				g.update_label()
+
+	var idx = active_vaults.find(vault)
+	if idx != -1:
+		active_vaults.remove_at(idx)
+	if not vault.is_queued_for_deletion():
+		vault.queue_free()
 
 func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
@@ -434,22 +523,77 @@ func is_base_shielded() -> bool:
 func get_current_lock_act() -> int:
 	return current_lock_act
 
+func get_all_gates() -> Array:
+	var list: Array = []
+	if gates_container != null:
+		for child in gates_container.get_children():
+			if child is MultiplierGate3DScript:
+				list.append(child)
+	for child in get_children():
+		if child is MultiplierGate3DScript and not list.has(child):
+			list.append(child)
+	for v in active_vaults:
+		if is_instance_valid(v):
+			var bg = null
+			if "target_gate" in v and is_instance_valid(v.target_gate):
+				bg = v.target_gate
+			elif "blockaded_gate" in v and is_instance_valid(v.blockaded_gate):
+				bg = v.blockaded_gate
+			elif v.has_meta("target_gate"):
+				bg = v.get_meta("target_gate")
+			elif v.has_meta("blockaded_gate"):
+				bg = v.get_meta("blockaded_gate")
+			if is_instance_valid(bg) and not list.has(bg):
+				list.append(bg)
+
+	return list
+
+func _resolve_vault_contacts() -> void:
+	for i in range(active_vaults.size() - 1, -1, -1):
+		var vault = active_vaults[i]
+		if not is_instance_valid(vault) or vault.is_queued_for_deletion():
+			continue
+		var vx: float = vault.global_position.x
+		var vz: float = vault.global_position.z
+		var vy: float = vault.global_position.y
+		var hw: float = vault.half_width if ("half_width" in vault and vault.half_width > 0.0) else 2.0
+		var hz: float = vault.half_depth if ("half_depth" in vault and vault.half_depth > 0.0) else 1.25
+		var hy: float = vault.half_height if ("half_height" in vault and vault.half_height > 0.0) else 1.25
+
+		for blue in blue_mobs:
+			if not is_live(blue):
+				continue
+			if abs(blue.global_position.x - vx) <= (hw + 0.22) and \
+			   abs(blue.global_position.z - vz) <= (hz + 0.22) and \
+			   abs(blue.global_position.y - vy) <= (hy + 0.35):
+				on_mob_hit_vault(blue, vault)
+				if not is_instance_valid(vault) or vault.is_queued_for_deletion() or ("hp" in vault and vault.hp <= 0):
+					break
+
 func _resolve_gate_contacts() -> void:
-	if gates_container == null:
-		return
-	for child in gates_container.get_children():
-		if child is MultiplierGate3DScript:
-			var gate: MultiplierGate3DScript = child
-			var gz = gate.global_position.z
-			var gx = gate.global_position.x
-			var gy = gate.global_position.y
-			for mob in blue_mobs:
-				if not is_live(mob):
-					continue
-				if abs(mob.global_position.x - gx) <= (2.0 + 0.22) and \
-				   abs(mob.global_position.z - gz) <= (0.3 + 0.22) and \
-				   abs(mob.global_position.y - gy) <= (1.0 + 0.35):
-					on_mob_entered_gate(mob, gate)
+	var gates: Array = get_all_gates()
+	for gate in gates:
+		if not is_instance_valid(gate) or gate.is_queued_for_deletion():
+			continue
+		var gz: float = gate.global_position.z
+		var gx: float = gate.global_position.x
+		var gy: float = gate.global_position.y
+
+		for mob in blue_mobs:
+			if not is_live(mob):
+				continue
+			if abs(mob.global_position.x - gx) <= (2.0 + 0.22) and \
+			   abs(mob.global_position.z - gz) <= (0.3 + 0.22) and \
+			   abs(mob.global_position.y - gy) <= (1.0 + 0.35):
+				on_mob_entered_gate(mob, gate)
+
+		for red in red_mobs:
+			if not is_live(red):
+				continue
+			if abs(red.global_position.x - gx) <= (2.0 + 0.22) and \
+			   abs(red.global_position.z - gz) <= (0.3 + 0.22) and \
+			   abs(red.global_position.y - gy) <= (1.0 + 0.35):
+				on_red_mob_entered_gate(red, gate)
 
 func _resolve_mob_clashes() -> void:
 	for blue in blue_mobs:
@@ -641,8 +785,127 @@ func advance_stage() -> void:
 		if victory_banner != null:
 			victory_banner.visible = true
 
-func _spawn_stage_layout(_stage_idx: int) -> void:
-	pass
+func _spawn_stage_layout(stage_idx: int) -> void:
+	if auto_spawn_vaults:
+		spawn_stage_vault(stage_idx)
+
+func spawn_vault(arg1: Variant, arg2: Variant, target_gate: MultiplierGate3DScript = null) -> Node3D:
+	var pos: Vector3
+	var vault_hp: int
+	if arg1 is Vector3:
+		pos = arg1
+		vault_hp = int(arg2)
+	else:
+		vault_hp = int(arg1)
+		pos = arg2 if arg2 is Vector3 else Vector3.ZERO
+
+	var vault: Node3D
+	if GiantEnemyScene != null:
+		var giant = GiantEnemyScene.instantiate() as GiantEnemy3DScript
+		giant.entity_mode = GiantEnemy3DScript.EntityMode.VAULT
+		giant.speed = 0.0
+		giant.hp = vault_hp
+		giant.max_hp = vault_hp
+		giant.is_invulnerable = false
+		giant.is_shielded = false
+		vault = giant
+	else:
+		vault = Node3D.new()
+		vault.set("hp", vault_hp)
+		vault.set("max_hp", vault_hp)
+
+	vault.position = pos
+	vault.name = "Vault_%d" % (active_vaults.size() + 1)
+	vault.add_to_group("vaults")
+	if "target_gate" in vault:
+		vault.target_gate = target_gate
+	elif "blockaded_gate" in vault:
+		vault.blockaded_gate = target_gate
+	else:
+		vault.set_meta("target_gate", target_gate)
+		vault.set_meta("blockaded_gate", target_gate)
+
+	if target_gate != null:
+		target_gate.lock(vault)
+
+	add_child(vault)
+	active_vaults.append(vault)
+	if vault.has_method("_update_ui"):
+		vault._update_ui()
+	return vault
+
+func _spawn_vault(arg1: Variant, arg2: Variant, target_gate: MultiplierGate3DScript = null) -> Node3D:
+	return spawn_vault(arg1, arg2, target_gate)
+
+func spawn_vault_for_gate(gate: MultiplierGate3DScript, vault_hp: int = -1) -> Node3D:
+	if vault_hp <= 0:
+		var cfg: Dictionary = get_current_stage_config()
+		vault_hp = int(cfg.get("vault_hp", 400))
+	var vault_pos = Vector3(gate.global_position.x, 1.25, gate.global_position.z + 0.5)
+	return spawn_vault(vault_pos, vault_hp, gate)
+
+func spawn_evolution_gate(arg1: Variant, arg2: Variant = 1, arg3: Variant = "") -> MultiplierGate3DScript:
+	var pos: Vector3 = Vector3.ZERO
+	var start_level: int = 1
+	var gate_id_str: String = ""
+
+	if arg1 is Vector3:
+		pos = arg1
+		if arg2 is int or arg2 is float:
+			start_level = int(arg2)
+		elif arg2 is String:
+			gate_id_str = arg2
+		if arg3 is String and arg3 != "":
+			gate_id_str = arg3
+		elif arg3 is int or arg3 is float:
+			start_level = int(arg3)
+	elif arg1 is String:
+		gate_id_str = arg1
+		if arg2 is Vector3:
+			pos = arg2
+		elif arg2 is int or arg2 is float:
+			start_level = int(arg2)
+		if arg3 is int or arg3 is float:
+			start_level = int(arg3)
+		elif arg3 is Vector3:
+			pos = arg3
+
+	var gate: MultiplierGate3DScript
+	if MultiplierGate3DScene != null:
+		gate = MultiplierGate3DScene.instantiate() as MultiplierGate3DScript
+	else:
+		gate = MultiplierGate3DScript.new()
+	gate.gate_id = gate_id_str if gate_id_str != "" else "evolution_gate_%d" % (get_all_gates().size() + 1)
+	gate.position = pos
+	gate.setup_evolution(start_level)
+	if gates_container != null:
+		gates_container.add_child(gate)
+	else:
+		add_child(gate)
+	return gate
+
+func _spawn_evolution_gate(arg1: Variant, arg2: Variant = 1, arg3: Variant = "") -> MultiplierGate3DScript:
+	return spawn_evolution_gate(arg1, arg2, arg3)
+
+
+func spawn_stage_vault(stage_idx: int) -> Node3D:
+	var cfg: Dictionary = STAGES[clampi(stage_idx, 0, STAGES.size() - 1)]
+	var v_hp: int = int(cfg.get("vault_hp", 400))
+	var mult: int = int(cfg.get("vault_gate_mult", 4))
+	var gate: MultiplierGate3DScript
+	if MultiplierGate3DScene != null:
+		gate = MultiplierGate3DScene.instantiate() as MultiplierGate3DScript
+	else:
+		gate = MultiplierGate3DScript.new()
+	gate.gate_id = "stage_%d_vault_gate" % (stage_idx + 1)
+	gate.operation = "x"
+	gate.value = mult
+	gate.position = Vector3(2.5, 1.0, -8.0)
+	if gates_container != null:
+		gates_container.add_child(gate)
+	else:
+		add_child(gate)
+	return spawn_vault_for_gate(gate, v_hp)
 
 func reset_stage() -> void:
 	state = GameState.PLAYING

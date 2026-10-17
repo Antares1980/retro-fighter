@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented High-HP Destructible Vaults & Two-Way Evolution Gates for Mob Control 3D (Issue #46, Parent #43):
+  - In `scripts/mob_control/MultiplierGate3D.gd`:
+    - Added locking state support (`is_locked`, `blockading_vault`, `is_active()`, `unlock()`, `lock(vault)`). When locked or blockaded by an active Vault, gates return 0 clones and refuse passage to Blue mobs until unlocked.
+    - Implemented Two-Way Evolution Gate mechanics (`is_evolution_gate`, `level`, `progress`, `setup_evolution(start_level)`, `feed_blue(amount)`, `sabotage_red(amount)`). Evolution gates start at +1 (floor: level >= 1, progress >= 0) and cap at +15. Passing Blue mobs add +1 progress per unit, upgrading the multiplier by +1 for every 30 blue units (GWT 4).
+    - Added 1:1 Red mob sabotage: Red units passing through the gate decrease progress by 1 unit per red mob, dropping multiplier level down to minimum floor +1 without consuming or cloning the Red unit.
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Implemented high-HP destructible Vault entities blockading high-yield multiplier gates (`x4` in Stages 1–2, `x5` in Stages 3–5) via `spawn_vault()`, `spawn_vault_for_gate()`, and `spawn_stage_vault()`.
+    - Added `_resolve_vault_contacts()` in Phase 2 contact resolution: Blue mobs colliding with the Vault inflict 1 damage, are consumed, and generate 0 clones from the locked gate while Base HP remains undamaged (GWT 3).
+    - When Vault HP drops to 0, `_destroy_vault()` shatters the blockade, removes the Vault from `active_vaults`, unlocks the blockaded gate (`is_locked = false`, `is_active() == true`), and passing Blue mobs multiply according to gate yield.
+    - Added `get_all_gates()` collecting scene gates, dynamic stage gates, and vault-linked gates for unified contact resolution.
+    - Updated `_resolve_gate_contacts()` to check both Blue mobs (calling `on_mob_entered_gate`) and Red mobs (calling `on_red_mob_entered_gate`) for evolution gate feeding and sabotage.
+  - In `scripts/mob_control/GiantEnemy3D.gd`:
+    - Added `is_vault()` helper and `"VAULT: %d"` Label3D overhead formatting when registered in group `"vaults"`.
+  - Enhanced automated test suites:
+    - Added Scenario 12 (`test_scenario_12_vault_destruction_and_evolution_gates`) to `tests/test_mob_control.gd` with 53 comprehensive assertions validating GWT 3 Vault blockade damage, consumption, 0-clone suppression, destruction, gate unlocking, and high-yield multiplication, and GWT 4 Evolution Gate feeding (+1 to +2 upon 30 units), 1:1 Red sabotage, floor clamping (level >= 1, progress >= 0), and cap clamping (cap +15 at 420 progress).
+    - Added `test_vault_and_evolution_gate_contract` to `tests/test_mob_control.py` verifying locking, evolution parameters, vault contact resolution, and spawning methods.
 - Implemented 3-Act Base Shield Lock State Machine & Pylons for Mob Control 3D (Issue #45, Parent #43):
   - In `scripts/mob_control/GiantEnemy3D.gd`, introduced `EntityMode` enum (`BASE`, `PYLON`) and added `is_invulnerable` and `is_shielded` properties. Implemented 0-damage discard when shielded or invulnerable, and mode-aware 3D UI label display (`SHIELDED`, `PYLON`, or `HP`).
   - In `scripts/mob_control/MobControlMain.gd`, implemented 3-act base shield lock state machine:

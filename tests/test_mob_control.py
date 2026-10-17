@@ -261,6 +261,23 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('func get_current_lock_act()', self.main_script)
         self.assertIn("test_scenario_11_three_act_base_shield_lock_state_machine", self.test_gd)
 
+    def test_vault_and_evolution_gate_contract(self):
+        """Issue #46 / GWT 3, 4: Verify Destructible Vaults and Two-Way Evolution Gates contract."""
+        self.assertIn('var is_locked: bool', self.gate_script)
+        self.assertIn('var is_evolution_gate: bool', self.gate_script)
+        self.assertIn('func is_active() -> bool', self.gate_script)
+        self.assertIn('func feed_blue(', self.gate_script)
+        self.assertIn('func sabotage_red(', self.gate_script)
+        self.assertIn('const PROGRESS_PER_LEVEL: int = 30', self.gate_script)
+        self.assertIn('const MAX_LEVEL: int = 15', self.gate_script)
+        self.assertIn('const MIN_LEVEL: int = 1', self.gate_script)
+        self.assertIn('func _resolve_vault_contacts()', self.main_script)
+        self.assertIn('func on_mob_hit_vault(', self.main_script)
+        self.assertIn('func _destroy_vault(', self.main_script)
+        self.assertIn('func spawn_vault(', self.main_script)
+        self.assertIn('func spawn_evolution_gate(', self.main_script)
+        self.assertIn('test_scenario_12_vault_destruction_and_evolution_gates', self.test_gd)
+
 if __name__ == "__main__":
     unittest.main()
 
