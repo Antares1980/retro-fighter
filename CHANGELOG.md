@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Multi-Cannon Squad Progression (Max 5 Cannons) & `xN` Gate Bullet Power Scaling for Mob Control 3D:
+  - In `scripts/mob_control/MobControlMain.gd` and `scripts/mob_control/Cannon3D.gd`:
+    - Added multi-cannon squad progression (`MAX_CANNONS = 5`, `CANNON_SLOT_OFFSETS = [0.0, -1.15, 1.15, -2.30, +2.30]`): when a Blue bullet touches an active `xN` (`operation == "x"`) gate (`x2`, `x3`, `x4`, `x5`), the game both duplicates the passing bullet on the highway and spawns `+1` additional `Cannon3D` into the side-by-side player squad up to the maximum limit of 5 cannons.
+    - All active cannons steer together as a unified squad clamped strictly within the `[-5.0, +5.0]` highway bounds and fire simultaneously every `0.14s` from their individual muzzles (`get_muzzle_position()`).
+    - Once all 5 cannons are active, subsequent Blue bullet contacts with `xN` gates permanently increase shared `bullet_power` for all 5 cannons by `+N` (`+2` for `x2`, `+3` for `x3`, `+5` for `x5`).
+    - Resets active cannon count to `1` and `bullet_power` to `1` (`_reset_cannons_and_power()`) on stage initialization, advancement, and retry.
+  - In `scripts/mob_control/MobUnit3D.gd` and `scenes/mob_control/MobControlMain.tscn`:
+    - Added `power` property to `MobUnit3D`: powered-up bullets deal `P` damage to Giant Boss Bases, Shield Pylons, and Destructible Vaults, survive up to `P` Red Mob clashes (losing `1` power per Red Mob before being consumed), pass their `power` to gate-spawned clones, and visually scale and tint with an energetic cyan-to-gold emission glow (`_update_power_visuals()`).
+    - Added top-center HUD `CannonStatusLabel` (`"CANNONS: N/5 | BULLET POWER: P"`) and floating 3D `CannonPowerLabel3D` (`"CANNONS: N/5 | PWR: xP"`) above the cannon squad.
+  - Enhanced automated test suites:
+    - Added Scenario 15 (`test_scenario_15_multi_cannon_squad_and_bullet_power_progression`) to `tests/test_mob_control.gd` (625 total passing assertions) and `test_multi_cannon_squad_and_bullet_power_contract` to `tests/test_mob_control.py` (110 total passing tests).
 - Implemented Mob Control 3D Visual Gate Duplication Spread, Dynamic High-Resolution 3D Viewport, & Forward Highway Scroller (Spec `001-mob-control-spread-scroll`):
   - In `scripts/mob_control/MobControlMain.gd`:
     - Implemented deterministic lateral and staggered-row formation spreading (`_compute_gate_formation_slot`, `CLONE_SPACING_X = 0.55`, `CLONE_SPACING_Z = 0.50`, `MAX_ROW_WIDTH = 5`) inside `on_mob_entered_gate()`, separating the passing parent Blue Mob and spawned clones into distinct `(X, Z)` positions clamped strictly within `[-4.5, +4.5]` so duplicated units from `x2`, `+2`, `x3`, and `+5` gates visibly fan out into a wider swarm (GWT 1, GWT 2).

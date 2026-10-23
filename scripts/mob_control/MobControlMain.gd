@@ -3,7 +3,8 @@ extends Node3D
 
 ## Main scene controller for Mob Control 3D.
 ## Manages 4-phase deterministic stepping: Motion -> Contact Resolution -> State Evaluation -> Bounds Cleanup.
-## Enforces MAX_MOBS = 300 cap, 1-to-1 swarm attrition, modifier gate replication, and Giant Boss assault.
+## Enforces MAX_MOBS = 300 cap, multi-cannon squad (up to 5 cannons), xN gate bullet power scaling,
+## swarm attrition, modifier gate replication, and Giant Boss assault.
 
 signal return_to_menu_requested
 
@@ -83,6 +84,9 @@ const STAGES: Array[Dictionary] = [
 ]
 
 const MAX_MOBS: int = 300
+const MAX_CANNONS: int = 5
+const CANNON_SPACING_X: float = 1.15
+const CANNON_SLOT_OFFSETS: Array[float] = [0.0, -1.15, 1.15, -2.30, 2.30]
 const BLUE_SPEED: float = -9.0
 const RED_SPEED: float = 4.2
 const GIANT_SPEED: float = 1.0
@@ -127,9 +131,14 @@ const Cannon3DScript = preload("res://scripts/mob_control/Cannon3D.gd")
 const GiantEnemy3DScript = preload("res://scripts/mob_control/GiantEnemy3D.gd")
 const MultiplierGate3DScript = preload("res://scripts/mob_control/MultiplierGate3D.gd")
 const MobUnit3DScript = preload("res://scripts/mob_control/MobUnit3D.gd")
+const CannonScene = preload("res://scenes/mob_control/Cannon3D.tscn")
 const MobUnitScene = preload("res://scenes/mob_control/MobUnit3D.tscn")
 const GiantEnemyScene = preload("res://scenes/mob_control/GiantEnemy3D.tscn")
 const MultiplierGate3DScene = preload("res://scenes/mob_control/MultiplierGate3D.tscn")
+
+var cannons: Array[Cannon3DScript] = []
+var bullet_power: int = 1
+var cannon_power_label_3d: Label3D = null
 
 var blue_mobs: Array[MobUnit3DScript] = []
 var red_mobs: Array[MobUnit3DScript] = []
@@ -141,6 +150,7 @@ var red_mobs: Array[MobUnit3DScript] = []
 @onready var victory_banner: Control = $UI/VictoryBanner if has_node("UI/VictoryBanner") else null
 @onready var defeat_banner: Control = $UI/DefeatBanner if has_node("UI/DefeatBanner") else null
 @onready var controls_hint: Label = $UI/ControlsHint if has_node("UI/ControlsHint") else null
+@onready var cannon_status_label: Label = $UI/CannonStatusLabel if has_node("UI/CannonStatusLabel") else null
 
 func _ready() -> void:
 	_resolve_nodes()
@@ -151,6 +161,9 @@ func _ready() -> void:
 		highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
 	if is_instance_valid(cannon) and not cannon.shoot_requested.is_connected(_on_cannon_shoot_requested):
 		cannon.shoot_requested.connect(_on_cannon_shoot_requested)
+	_ensure_cannons_initialized()
+	_update_cannon_squad_positions()
+	_update_cannon_status_ui()
 	if is_instance_valid(victory_banner):
 		victory_banner.visible = false
 	if is_instance_valid(defeat_banner):
@@ -174,6 +187,103 @@ func _restore_retro_viewport() -> void:
 		win.content_scale_size = RETRO_RES_SIZE
 	if is_inside_tree() and get_viewport() != null:
 		get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+
+func _ensure_cannons_initialized() -> void:
+	if cannon == null:
+		cannon = get_node_or_null("Cannon")
+	for i in range(cannons.size() - 1, -1, -1):
+		if not is_instance_valid(cannons[i]) or cannons[i].is_queued_for_deletion():
+			cannons.remove_at(i)
+	if is_instance_valid(cannon) and not cannons.has(cannon):
+		cannons.insert(0, cannon)
+
+func get_cannon_count() -> int:
+	_ensure_cannons_initialized()
+	return cannons.size()
+
+func get_bullet_power() -> int:
+	return bullet_power
+
+func _add_cannon() -> Cannon3DScript:
+	_ensure_cannons_initialized()
+	if cannons.size() >= MAX_CANNONS:
+		return null
+	var new_cannon: Cannon3DScript
+	if CannonScene != null:
+		new_cannon = CannonScene.instantiate() as Cannon3DScript
+	else:
+		new_cannon = Cannon3DScript.new()
+	new_cannon.name = "Cannon_%d" % (cannons.size() + 1)
+	add_child(new_cannon)
+	cannons.append(new_cannon)
+	_update_cannon_squad_positions()
+	_update_cannon_status_ui()
+	return new_cannon
+
+func _update_cannon_squad_positions() -> void:
+	_ensure_cannons_initialized()
+	if cannons.is_empty() or not is_instance_valid(cannon):
+		return
+	var min_offset: float = 0.0
+	var max_offset: float = 0.0
+	for i in range(cannons.size()):
+		var off: float = CANNON_SLOT_OFFSETS[i] if i < CANNON_SLOT_OFFSETS.size() else 0.0
+		min_offset = minf(min_offset, off)
+		max_offset = maxf(max_offset, off)
+	cannon.min_x = -5.0 - min_offset
+	cannon.max_x = 5.0 - max_offset
+	cannon.position.x = clampf(cannon.position.x, cannon.min_x, cannon.max_x)
+	for i in range(1, cannons.size()):
+		var c: Cannon3DScript = cannons[i]
+		if is_instance_valid(c):
+			var off: float = CANNON_SLOT_OFFSETS[i] if i < CANNON_SLOT_OFFSETS.size() else 0.0
+			c.position = Vector3(cannon.position.x + off, cannon.position.y, cannon.position.z)
+	if is_instance_valid(cannon_power_label_3d):
+		cannon_power_label_3d.position = Vector3(cannon.position.x, cannon.position.y + 1.15, cannon.position.z)
+
+func _update_cannon_status_ui() -> void:
+	_ensure_cannons_initialized()
+	var count: int = maxi(1, cannons.size())
+	if cannon_status_label == null:
+		cannon_status_label = get_node_or_null("UI/CannonStatusLabel")
+	if cannon_status_label != null:
+		cannon_status_label.text = "CANNONS: %d/%d | BULLET POWER: %d" % [count, MAX_CANNONS, bullet_power]
+	if cannon_power_label_3d == null or not is_instance_valid(cannon_power_label_3d):
+		cannon_power_label_3d = get_node_or_null("CannonPowerLabel3D") as Label3D
+		if cannon_power_label_3d == null:
+			cannon_power_label_3d = Label3D.new()
+			cannon_power_label_3d.name = "CannonPowerLabel3D"
+			cannon_power_label_3d.pixel_size = 0.014
+			cannon_power_label_3d.font_size = 36
+			cannon_power_label_3d.outline_size = 6
+			cannon_power_label_3d.modulate = Color(0.95, 0.95, 1.0, 1.0)
+			add_child(cannon_power_label_3d)
+	cannon_power_label_3d.text = "CANNONS: %d/%d | PWR: x%d" % [count, MAX_CANNONS, bullet_power]
+	if is_instance_valid(cannon):
+		cannon_power_label_3d.position = Vector3(cannon.position.x, cannon.position.y + 1.15, cannon.position.z)
+
+func _reset_cannons_and_power() -> void:
+	_ensure_cannons_initialized()
+	for i in range(cannons.size() - 1, 0, -1):
+		var extra: Cannon3DScript = cannons[i]
+		if is_instance_valid(extra):
+			if extra.get_parent() != null:
+				extra.get_parent().remove_child(extra)
+			extra.free()
+		cannons.remove_at(i)
+	bullet_power = 1
+	if is_instance_valid(cannon):
+		cannon.reset()
+	_update_cannon_squad_positions()
+	_update_cannon_status_ui()
+
+func _on_bullet_hit_multiplier_gate(mult_value: int) -> void:
+	_ensure_cannons_initialized()
+	if cannons.size() < MAX_CANNONS:
+		_add_cannon()
+	else:
+		bullet_power += maxi(1, mult_value)
+		_update_cannon_status_ui()
 
 func _setup_road_scroller() -> void:
 	if road_decor == null:
@@ -252,6 +362,8 @@ func _resolve_nodes() -> void:
 		defeat_banner = get_node_or_null("UI/DefeatBanner")
 	if controls_hint == null:
 		controls_hint = get_node_or_null("UI/ControlsHint")
+	if cannon_status_label == null:
+		cannon_status_label = get_node_or_null("UI/CannonStatusLabel")
 
 func _physics_process(delta: float) -> void:
 	step(delta)
@@ -261,6 +373,7 @@ func step(delta: float) -> void:
 		return
 
 	_resolve_nodes()
+	_ensure_cannons_initialized()
 
 	# Pre-tick dead instance pruning
 	for i in range(blue_mobs.size() - 1, -1, -1):
@@ -283,7 +396,9 @@ func step(delta: float) -> void:
 	_step_road_scroller(delta)
 
 	if is_instance_valid(cannon):
+		_update_cannon_squad_positions()
 		cannon.step(delta)
+		_update_cannon_squad_positions()
 
 	for mob in blue_mobs:
 		if is_live(mob):
@@ -331,15 +446,26 @@ func step(delta: float) -> void:
 func _on_cannon_shoot_requested(muzzle_pos: Vector3) -> void:
 	if state != GameState.PLAYING:
 		return
-	if get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS:
+	_ensure_cannons_initialized()
+	if cannons.is_empty():
+		if get_live_blue_mobs_count() + pending_spawns < MAX_MOBS:
+			_spawn_blue_mob(muzzle_pos, {}, bullet_power)
 		return
-	_spawn_blue_mob(muzzle_pos)
+	for i in range(cannons.size()):
+		if get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS:
+			break
+		var c: Cannon3DScript = cannons[i]
+		if not is_instance_valid(c):
+			continue
+		var shot_pos: Vector3 = muzzle_pos if i == 0 else c.get_muzzle_position()
+		_spawn_blue_mob(shot_pos, {}, bullet_power)
 
-func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}) -> MobUnit3DScript:
+func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}, p_power: int = -1) -> MobUnit3DScript:
 	var mob = MobUnitScene.instantiate() as MobUnit3DScript
 	mob.position = pos
 	mob.passed_gates = p_passed_gates.duplicate()
-	mob.setup("blue")
+	var effective_power: int = p_power if p_power > 0 else 1
+	mob.setup("blue", effective_power)
 	add_child(mob)
 	blue_mobs.append(mob)
 	return mob
@@ -350,7 +476,7 @@ func _spawn_red_mob() -> MobUnit3DScript:
 	var mob = MobUnitScene.instantiate() as MobUnit3DScript
 	var x = rng.randf_range(-4.5, 4.5)
 	mob.position = Vector3(x, 0.5, -22.0)
-	mob.setup("red")
+	mob.setup("red", 1)
 	add_child(mob)
 	red_mobs.append(mob)
 	return mob
@@ -386,6 +512,9 @@ func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> 
 	if gate.is_evolution_gate:
 		gate.feed_blue(1)
 
+	if gate.operation == "x":
+		_on_bullet_hit_multiplier_gate(gate.value)
+
 	var k: int = gate.calculate_clones()
 	var remaining_space: int = MAX_MOBS - (get_live_blue_mobs_count() + pending_spawns)
 	var allowed: int = maxi(0, mini(k, remaining_space))
@@ -398,12 +527,14 @@ func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> 
 	var parent_slot: Vector3 = _compute_gate_formation_slot(0, total_group, anchor_x, base_z)
 	mob.position.x = parent_slot.x
 
+	var parent_power: int = maxi(1, mob.power if "power" in mob else 1)
 	pending_spawns += allowed
 	for i in range(allowed):
 		var clone_pos: Vector3 = _compute_gate_formation_slot(i + 1, total_group, anchor_x, base_z)
 		var clone_data = {
 			"pos": clone_pos,
-			"passed_gates": mob.passed_gates.duplicate()
+			"passed_gates": mob.passed_gates.duplicate(),
+			"power": parent_power
 		}
 		pending_spawn_queue.append(clone_data)
 		call_deferred("_deferred_spawn_clone", clone_data)
@@ -428,7 +559,8 @@ func _deferred_spawn_clone(clone_data: Dictionary) -> void:
 func _instantiate_clone(clone_data: Dictionary) -> void:
 	if pending_spawns > 0:
 		pending_spawns -= 1
-	_spawn_blue_mob(clone_data["pos"], clone_data["passed_gates"])
+	var pwr: int = int(clone_data.get("power", 1))
+	_spawn_blue_mob(clone_data["pos"], clone_data["passed_gates"], pwr)
 
 func flush_pending_spawns() -> void:
 	var queue_copy = pending_spawn_queue.duplicate()
@@ -439,19 +571,26 @@ func flush_pending_spawns() -> void:
 func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 	if not is_live(blue) or not is_live(red):
 		return
-	blue.is_consumed = true
+	var red_hp: int = maxi(1, red.power if "power" in red else 1)
+	var blue_pwr: int = maxi(1, blue.power if "power" in blue else 1)
 	red.is_consumed = true
-	blue.queue_free()
 	red.queue_free()
+	if blue_pwr > red_hp:
+		blue.power = blue_pwr - red_hp
+	else:
+		blue.power = 0
+		blue.is_consumed = true
+		blue.queue_free()
 	_check_shield_release()
 
 func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
 		return
+	var dmg: int = maxi(1, blue.power if "power" in blue else 1)
 	blue.is_consumed = true
 	blue.queue_free()
 	if is_instance_valid(pylon):
-		pylon.take_damage(1)
+		pylon.take_damage(dmg)
 		if pylon.hp <= 0:
 			if not pylon.is_queued_for_deletion():
 				pylon.queue_free()
@@ -463,13 +602,14 @@ func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
 func on_mob_hit_vault(blue: MobUnit3DScript, vault: Node3D) -> void:
 	if not is_live(blue):
 		return
+	var dmg: int = maxi(1, blue.power if "power" in blue else 1)
 	blue.is_consumed = true
 	blue.queue_free()
 	if is_instance_valid(vault):
 		if vault.has_method("take_damage"):
-			vault.take_damage(1)
+			vault.take_damage(dmg)
 		elif "hp" in vault:
-			vault.hp = maxi(0, vault.hp - 1)
+			vault.hp = maxi(0, vault.hp - dmg)
 			if vault.has_method("_update_ui"):
 				vault._update_ui()
 		if "hp" in vault and vault.hp <= 0:
@@ -517,6 +657,7 @@ func _destroy_vault(vault: Node3D) -> void:
 func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
 		return
+	var dmg: int = maxi(1, blue.power if "power" in blue else 1)
 	blue.is_consumed = true
 	blue.queue_free()
 	if not is_instance_valid(giant):
@@ -524,7 +665,7 @@ func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if giant.is_shielded or giant.is_invulnerable:
 		# GWT 1: 0 damage discard while shielded
 		return
-	_apply_damage_to_base(1)
+	_apply_damage_to_base(dmg)
 
 func _apply_damage_to_base(amount: int = 1) -> void:
 	if not is_instance_valid(giant_enemy) or giant_enemy.is_shielded or giant_enemy.is_invulnerable:
@@ -605,7 +746,7 @@ func _spawn_counter_surge_wave(count: int, speed_mult: float = 1.0) -> Array:
 		var x: float = -4.0 + (8.0 / float(maxi(1, count - 1))) * float(i) if count > 1 else 0.0
 		var z_offset: float = float(i % 3) * 0.4
 		mob.position = Vector3(x, 0.5, spawn_z + z_offset)
-		mob.setup("red")
+		mob.setup("red", 1)
 		mob.add_to_group("surge_units")
 		add_child(mob)
 		mob.speed = RED_SPEED * speed_mult
@@ -725,7 +866,8 @@ func _resolve_mob_clashes() -> void:
 			   abs(blue.global_position.z - red.global_position.z) <= 0.44 and \
 			   abs(blue.global_position.y - red.global_position.y) <= 0.70:
 				on_mob_clash(blue, red)
-				break
+				if not is_live(blue):
+					break
 
 func _resolve_pylon_contacts() -> void:
 	for pylon in active_pylons:
@@ -899,8 +1041,7 @@ func init_stage(stage_idx: int) -> void:
 	if is_instance_valid(giant_enemy):
 		var base_hp: int = int(cfg.get("base_hp", 1200))
 		giant_enemy.reset(base_hp)
-	if is_instance_valid(cannon):
-		cannon.reset()
+	_reset_cannons_and_power()
 	red_spawn_timer = 0.0
 	time_elapsed = 0.0
 	if is_instance_valid(victory_banner):

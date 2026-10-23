@@ -35,15 +35,20 @@ func step(delta: float) -> void:
 		fire_accumulator += delta
 		if fire_accumulator >= FIRE_INTERVAL:
 			fire_accumulator -= FIRE_INTERVAL
-			if muzzle == null:
-				muzzle = get_node_or_null("Muzzle")
-			var muzzle_pos: Vector3 = muzzle.global_position if muzzle != null else Vector3(position.x, 0.5, 8.0)
+			var muzzle_pos: Vector3 = get_muzzle_position()
 			shoot_requested.emit(muzzle_pos)
 	else:
 		fire_accumulator = 0.0
 
+func get_muzzle_position() -> Vector3:
+	if muzzle == null:
+		muzzle = get_node_or_null("Muzzle")
+	return muzzle.global_position if (muzzle != null and is_inside_tree()) else Vector3(position.x, 0.5, 8.0)
+
 func reset() -> void:
 	position = Vector3(0.0, 0.5, 9.0)
+	min_x = -5.0
+	max_x = 5.0
 	move_input = 0.0
 	fire_held = false
 	fire_accumulator = 0.0
