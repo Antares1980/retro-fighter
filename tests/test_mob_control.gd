@@ -87,6 +87,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_15_multi_cannon_squad_and_bullet_power_progression()
 	test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx()
 	test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction()
+	test_scenario_18_auto_fire_downrange_recycling_and_aggressive_horde_escalation()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -163,6 +164,7 @@ func test_scenario_2_cannon_movement_cadence_and_cap() -> void:
 	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "Cannon clamped at max_x = +5.0")
 
 	cannon.reset()
+	main.cleanup_all_mobs()
 	assert_equal(cannon.position, Vector3(0.0, 0.5, 9.0), "Cannon reset restores (0.0, 0.5, 9.0)")
 
 	# Test shooting cadence: 1.0s stepped in 60 increments of 1/60s
@@ -187,7 +189,8 @@ func test_scenario_2_cannon_movement_cadence_and_cap() -> void:
 		assert_false(mob.is_consumed, "Blue mob is_consumed is false")
 		assert_equal(mob.team, "blue", "Mob team is blue")
 
-	# Test release resets accumulator
+	# Test release resets accumulator when manual firing mode is used
+	cannon.auto_fire = false
 	cannon.fire_held = false
 	main.step(1.0 / 60.0)
 	assert_equal(cannon.fire_accumulator, 0.0, "Fire accumulator resets to 0.0 on release")
@@ -200,6 +203,7 @@ func test_scenario_2_cannon_movement_cadence_and_cap() -> void:
 
 	main.step(1.0 / 60.0) # Step 9: 9/60 = 0.15s >= 0.14s
 	assert_equal(main.get_live_blue_mobs_count(), 8, "Shot fired on step 9 after re-engaging fire")
+	cannon.auto_fire = true
 
 	# Test MAX_MOBS cap enforcement at cannon
 	main.cleanup_all_mobs()
@@ -605,7 +609,8 @@ func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
 	if main.controls_hint != null:
 		assert_true(main.controls_hint.visible, "ControlsHint is visible on screen")
 		assert_true(main.controls_hint.text.contains("A/D or ARROWS: STEER"), "ControlsHint explains steering")
-		assert_true(main.controls_hint.text.contains("HOLD J or SPACE: FIRE"), "ControlsHint explains firing")
+		assert_false(main.controls_hint.text.contains("SPACE"), "ControlsHint omits manual SPACE firing")
+		assert_equal(main.controls_hint.text, "A/D or ARROWS: STEER | ESC: MENU", "ControlsHint matches steering + menu text")
 		assert_true(main.controls_hint.text.contains("ESC: MENU"), "ControlsHint explains returning to menu")
 
 	var cannon = main.cannon
@@ -665,9 +670,10 @@ func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
 	Input.action_release("p2_right")
 	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "p2_right clamped firmly at max_x = +5.0")
 
-	# 4. AC3: Continuous firing via J (p1_punch) and Space (mc_fire)
+	# 4. AC3: Continuous firing via J (p1_punch) and Space (mc_fire) when auto_fire is disabled
 	main.cleanup_all_mobs()
 	cannon.reset()
+	cannon.auto_fire = false
 
 	# Test J key (p1_punch)
 	Input.action_press("p1_punch")
@@ -683,6 +689,7 @@ func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
 	# Test Space key (mc_fire)
 	main.cleanup_all_mobs()
 	cannon.reset()
+	cannon.auto_fire = false
 	Input.action_press("mc_fire")
 	for i in range(8):
 		main.step(1.0 / 60.0)
@@ -697,14 +704,16 @@ func test_scenario_7_controls_discoverability_steering_and_space_fire() -> void:
 	main.step(1.0 / 60.0)
 	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when mc_fire released")
 
-	# Test P1-only fire constraint: p2_punch must NOT fire cannon
+	# Test P1-only fire constraint: p2_punch must NOT fire cannon when auto_fire is false
 	main.cleanup_all_mobs()
 	cannon.reset()
+	cannon.auto_fire = false
 	Input.action_press("p2_punch")
 	for i in range(30):
 		main.step(1.0 / 60.0)
 	Input.action_release("p2_punch")
 	assert_equal(main.get_live_blue_mobs_count(), 0, "p2_punch does not fire cannon (P1-only firing contract)")
+	cannon.auto_fire = true
 
 	# 5. AC4: Game State Transition & Restart Stability
 	main.state = MobControlMainScript.GameState.DEFEAT
@@ -848,9 +857,10 @@ func test_scenario_8_raw_key_fallback_and_scene_attachment() -> void:
 	release_key.call(KEY_RIGHT)
 	assert_true(cannon.position.x >= 4.99 and cannon.position.x <= 5.0, "KEY_RIGHT clamped firmly at max_x = +5.0")
 
-	# GWT 4: Continuous Fire via KEY_J and KEY_SPACE & accumulator reset
+	# GWT 4: Continuous Fire via KEY_J and KEY_SPACE & accumulator reset when auto_fire is false
 	main.cleanup_all_mobs()
 	cannon.reset()
+	cannon.auto_fire = false
 	press_key.call(KEY_J)
 	for i in range(8):
 		main.step(1.0 / 60.0)
@@ -863,6 +873,7 @@ func test_scenario_8_raw_key_fallback_and_scene_attachment() -> void:
 
 	main.cleanup_all_mobs()
 	cannon.reset()
+	cannon.auto_fire = false
 	press_key.call(KEY_SPACE)
 	for i in range(8):
 		main.step(1.0 / 60.0)
@@ -872,6 +883,7 @@ func test_scenario_8_raw_key_fallback_and_scene_attachment() -> void:
 	release_key.call(KEY_SPACE)
 	main.step(1.0 / 60.0)
 	assert_equal(cannon.fire_accumulator, 0.0, "Accumulator resets to 0.0 when KEY_SPACE released")
+	cannon.auto_fire = true
 
 	main.cleanup_all_mobs()
 	if active_tree != null:
@@ -1019,6 +1031,7 @@ func test_scenario_10_core_stage_config_and_dynamic_depth_highway() -> void:
 		active_tree.root.add_child(main)
 
 	# Verify Stage 1 bounds: D = -32.0, bound = -35.0
+	main.init_stage(0)
 	assert_equal(main.current_stage_index, 0, "Stage index initialized to 0")
 	assert_equal(main.get_highway_min_z(), -32.0, "Stage 1 highway_min_z is -32.0")
 	assert_equal(main.get_cleanup_bound_z(), -35.0, "Stage 1 cleanup bound (highway_min_z - 3.0) is -35.0")
@@ -2177,12 +2190,12 @@ func test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction
 	# =========================================================================
 	# PART 4: GWT 4 - Randomized & Time-Escalating Soldier and Boss Spawners
 	# =========================================================================
-	assert_equal(main.get_soldier_max_burst(0.0), 2, "GWT 4: Soldier max burst at t=0s is 2")
+	assert_equal(main.get_soldier_max_burst(0.0), 3, "GWT 4: Soldier max burst at t=0s is 3")
 	assert_true(main.get_soldier_max_burst(90.0) >= 6, "GWT 4: Soldier max burst escalates to >= 6 at t=90s")
 	assert_equal(main.get_max_concurrent_bosses(0.0), 1, "GWT 4: Max concurrent bosses at t=0s is 1")
 	assert_equal(main.get_max_concurrent_bosses(35.0), 2, "GWT 4: Max concurrent bosses at t=35s is 2")
-	assert_equal(main.get_max_concurrent_bosses(75.0), 3, "GWT 4: Max concurrent bosses at t=75s is 3")
-	assert_equal(main.get_max_concurrent_bosses(125.0), 4, "GWT 4: Max concurrent bosses at t=125s is 4")
+	assert_equal(main.get_max_concurrent_bosses(75.0), 4, "GWT 4: Max concurrent bosses at t=75s is 4")
+	assert_equal(main.get_max_concurrent_bosses(125.0), 5, "GWT 4: Max concurrent bosses at t=125s is 5")
 	assert_true(main.get_scaled_boss_hp(90.0) > main.get_scaled_boss_hp(0.0), "GWT 4: Boss HP scales up with survival time_elapsed")
 
 	# Step survival spawners at t = 65.0s and verify multiple soldiers and bosses spawn in valid lanes
@@ -2231,6 +2244,124 @@ func test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction
 	assert_equal(main.get_cannon_count(), 1, "GWT 5: Cannon count reset to 1")
 	assert_equal(main.get_bullet_power(), 1, "GWT 5: Bullet power reset to 1")
 	assert_true(main.get_all_gates().size() >= 4, "GWT 5: Baseline scrolling gates restored on survival reset")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
+func test_scenario_18_auto_fire_downrange_recycling_and_aggressive_horde_escalation() -> void:
+	print("\nScenario 18: Always-On Auto-Fire, Downrange Recycling at MAX_MOBS, & Aggressive Horde Escalation (GWT 1-5)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# =========================================================================
+	# PART 1: GWT 1 - Always-On Auto-Fire Without Pressing SPACE or J
+	# =========================================================================
+	assert_true(main.cannon != null, "GWT 1: Cannon exists on startup")
+	assert_true(main.cannon.auto_fire, "GWT 1: cannon.auto_fire defaults to true")
+	assert_false(main.cannon.fire_held, "GWT 1: cannon.fire_held is false (no manual fire button pressed)")
+	if main.controls_hint != null:
+		assert_equal(main.controls_hint.text, "A/D or ARROWS: STEER | ESC: MENU", "GWT 1: ControlsHint displays steering and menu instructions without SPACE")
+
+	main.cleanup_all_mobs()
+	main.cannon.fire_accumulator = 0.0
+	for _i in range(60):
+		main.step(1.0 / 60.0)
+	assert_equal(main.get_live_blue_mobs_count(), 7, "GWT 1: Cannon fires 7 shots in 1.0s automatically with zero manual fire input")
+
+	# =========================================================================
+	# PART 2: GWT 2 - Downrange Recycling Prevents Muzzle Jamming at MAX_MOBS = 300
+	# =========================================================================
+	main.init_survival_phase()
+	main.cleanup_all_mobs()
+	main._add_cannon()
+	main._add_cannon()
+	assert_equal(main.get_cannon_count(), 3, "GWT 2: Squad configured with 3 active cannons")
+
+	# Populate 300 live blue mobs spread downrange between Z = -20.0 and Z = -5.0
+	for idx in range(MobControlMainScript.MAX_MOBS):
+		var z_val: float = -20.0 + float(idx) * (15.0 / 300.0)
+		main._spawn_blue_mob(Vector3(0.0, 0.5, z_val))
+	assert_equal(main.get_live_blue_mobs_count(), MobControlMainScript.MAX_MOBS, "GWT 2: Pre-populated exactly 300 live blue mobs at MAX_MOBS cap")
+
+	# Trigger a 3-cannon salvo at Z = 9.0 while at MAX_MOBS = 300
+	main._on_cannon_shoot_requested(Vector3(0.0, 0.5, 9.0))
+	assert_equal(main.get_live_blue_mobs_count(), MobControlMainScript.MAX_MOBS, "GWT 2: Live blue mob count stays bounded at MAX_MOBS = 300 after salvo")
+
+	var muzzle_count: int = 0
+	for b_unit in main.blue_mobs:
+		if main.is_live(b_unit) and b_unit.position.z > 7.5:
+			muzzle_count += 1
+	assert_equal(muzzle_count, 3, "GWT 2: All 3 new muzzle shots spawned at Z ~ 8.2 by recycling furthest-downrange blue mobs")
+
+	# Also verify tighter upper-highway cleanup bound in survival mode (-24.5)
+	main.cleanup_all_mobs()
+	var far_mob: MobUnit3D = main._spawn_blue_mob(Vector3(0.0, 0.5, -24.4))
+	main.cannon.fire_accumulator = 0.0
+	main.step(1.0 / 60.0) # Moves far_mob to -24.4 - 0.1667 = -24.5667 < -24.5
+	assert_false(main.is_live(far_mob), "GWT 2: Blue mob crossing SURVIVAL_CLEANUP_BOUND_Z (-24.5) is cleaned up immediately")
+
+	# =========================================================================
+	# PART 3: GWT 3 & 4 - Escalating Soldier Swarm Size, Soldier Power, and Boss Assault
+	# =========================================================================
+	assert_equal(main.get_soldier_min_burst(0.0), 2, "GWT 3: Soldier min burst at t=0s is 2")
+	assert_equal(main.get_soldier_max_burst(0.0), 3, "GWT 3: Soldier max burst at t=0s is 3")
+	assert_equal(main.get_soldier_min_burst(60.0), 7, "GWT 3: Soldier min burst at t=60s is 7")
+	assert_equal(main.get_soldier_max_burst(60.0), 13, "GWT 3: Soldier max burst at t=60s is 13")
+	assert_equal(main.get_soldier_min_burst(180.0), 12, "GWT 3: Soldier min burst at t=180s clamps at 12")
+	assert_equal(main.get_soldier_max_burst(180.0), 24, "GWT 3: Soldier max burst at t=180s clamps at 24")
+
+	assert_equal(main.get_scaled_soldier_power(0.0), 1, "GWT 3: Soldier power at t=0s is 1")
+	assert_equal(main.get_scaled_soldier_power(50.0), 4, "GWT 3: Soldier power at t=50s is 4")
+	assert_equal(main.get_scaled_soldier_power(150.0), 11, "GWT 3: Soldier power at t=150s is 11")
+	assert_equal(main.get_scaled_soldier_power(400.0), 15, "GWT 3: Soldier power clamps at 15")
+
+	assert_equal(main.get_max_concurrent_bosses(0.0), 1, "GWT 4: Max concurrent bosses at t=0s is 1")
+	assert_equal(main.get_max_concurrent_bosses(25.0), 2, "GWT 4: Max concurrent bosses at t=25s is 2")
+	assert_equal(main.get_max_concurrent_bosses(50.0), 3, "GWT 4: Max concurrent bosses at t=50s is 3")
+	assert_equal(main.get_max_concurrent_bosses(80.0), 4, "GWT 4: Max concurrent bosses at t=80s is 4")
+	assert_equal(main.get_max_concurrent_bosses(110.0), 5, "GWT 4: Max concurrent bosses at t=110s is 5")
+
+	assert_equal(main.get_scaled_boss_hp(0.0), 160, "GWT 4: Boss HP at t=0s is 160")
+	assert_equal(main.get_scaled_boss_hp(60.0), 1072, "GWT 4: Boss HP at t=60s is 1072")
+	assert_equal(main.get_scaled_boss_hp(120.0), 2848, "GWT 4: Boss HP at t=120s is 2848")
+
+	# Verify spawned soldiers at t=75s receive get_scaled_soldier_power(75.0) == 6
+	main.init_survival_phase()
+	main.cleanup_all_mobs()
+	main.time_elapsed = 75.0
+	main.soldier_spawn_timer = 10.0
+	main._step_survival_spawners(1.0 / 60.0)
+	assert_true(main.red_mobs.size() >= main.get_soldier_min_burst(75.0), "GWT 3: Soldier burst count at t=75s is at least get_soldier_min_burst(75.0)")
+	for r_mob in main.red_mobs:
+		assert_equal(r_mob.power, 6, "GWT 3: Soldier spawned at t=75s has scaled power == 6")
+
+	# =========================================================================
+	# PART 4: GWT 5 - Paced Survival Cannon Unlock & Bullet Power Upgrade Thresholds
+	# =========================================================================
+	main.init_survival_phase()
+	main.cleanup_all_mobs()
+
+	# 11 hits on xN gate should NOT unlock 2nd cannon yet (threshold is 12)
+	for _hit in range(11):
+		main._on_bullet_hit_multiplier_gate(2)
+	assert_equal(main.get_cannon_count(), 1, "GWT 5: 11 xN gate hits in survival mode keep cannon_count at 1")
+	main._on_bullet_hit_multiplier_gate(2)
+	assert_equal(main.get_cannon_count(), 2, "GWT 5: 12th xN gate hit in survival mode unlocks 2nd cannon")
+
+	# Unlock remaining 3 cannons (3 * 12 = 36 hits) to reach 5/5 cannons
+	for _hit in range(36):
+		main._on_bullet_hit_multiplier_gate(2)
+	assert_equal(main.get_cannon_count(), 5, "GWT 5: Squad reaches 5/5 cannons after 48 total xN gate hits")
+
+	# Early power tier requires GATE_POWER_EARLY_THRESHOLD (10) accumulated value per tier in survival mode
+	main._on_bullet_hit_multiplier_gate(5)
+	assert_equal(main.get_bullet_power(), 1, "GWT 5: First x5 gate hit at 5/5 cannons accumulates 5/10 charge (power remains 1)")
+	main._on_bullet_hit_multiplier_gate(5)
+	assert_equal(main.get_bullet_power(), 2, "GWT 5: Second x5 gate hit reaches 10/10 charge and upgrades bullet_power to 2")
 
 	main.cleanup_stage_entities()
 	if active_tree != null:

@@ -5,11 +5,11 @@
 ### I. Deterministic Step-Driven Simulation
 All gameplay loops across 2D (`Main.gd`, `Fighter.gd`, `AIController.gd`) and 3D (`MobControlMain.gd`,
 `Cannon3D.gd`, `MultiplierGate3D.gd`, `GiantEnemy3D.gd`) MUST expose deterministic, frame-decoupled
-stepping methods (`step(delta)` or integer tick counters at 60 Hz). Combat resolution, multiplier gate
-cloning and forward scrolling, lateral formation spreading, time-escalating enemy/boss spawners, shield
-lock state machines, destruction debris physics, and environmental highway scrolling MUST execute
-reproducibly in headless automated tests without relying on wall-clock timers or asynchronous physics
-race conditions.
+stepping methods (`step(delta)` or integer tick counters at 60 Hz). Combat resolution, always-on cannon
+auto-fire cadence, multiplier gate cloning and forward scrolling, lateral formation spreading,
+time-escalating enemy/boss spawners, shield lock state machines, destruction debris physics, and
+environmental highway scrolling MUST execute reproducibly in headless automated tests without relying on
+wall-clock timers or asynchronous physics race conditions.
 
 **Rationale**: Frame-accurate fighting mechanics and high-density 3D swarm simulations require
 deterministic state transitions so that every Behavior-Driven Development (Given/When/Then) scenario
@@ -57,10 +57,15 @@ windowed editor session; defensive typing and tree guards eliminate environment-
 ### V. Bounded Entity Caps, Power Scaling, & Spatial Clarity
 Real-time 2D and 3D arenas MUST enforce strict entity caps, power-scaling thresholds, boundary clamps,
 and visual separation invariants so gameplay pacing and on-screen feedback remain balanced:
-- Active plus pending Blue Mobs in Mob Control 3D MUST never exceed `MAX_MOBS = 300`.
+- Active plus pending Blue Mobs in Mob Control 3D MUST never exceed `MAX_MOBS = 300`. In Survival Mode,
+  blue projectiles that pass the upper-highway enemy spawn zone (`Z < SURVIVAL_CLEANUP_BOUND_Z = -24.5`)
+  MUST despawn immediately, and whenever a cannon volley at the muzzle would exceed `MAX_MOBS = 300`, the
+  controller MUST recycle the furthest-downrange live blue bullet (`_recycle_furthest_blue_mob()`) so
+  cannon muzzle firing is never blocked or paused.
 - Squad cannon count MUST be bounded (`MAX_CANNONS = 5`) and `bullet_power` progression MUST enforce
-  gate-charge thresholds (`GATE_CHARGE_THRESHOLD`) and an upper cap (`MAX_BULLET_POWER = 25`) so gameplay
-  sustains tactical pacing rather than collapsing from runaway power inflation.
+  paced gate-charge thresholds in Survival Mode (`CANNON_UNLOCK_CHARGE_THRESHOLD = 12` per additional
+  cannon, `GATE_POWER_EARLY_THRESHOLD = 10` for tiers `1..6`, and `GATE_CHARGE_THRESHOLD = 35` for tiers
+  `6..25`) up to `MAX_BULLET_POWER = 25` so gameplay sustains tactical progression.
 - Projectiles duplicated by multiplier gates (`xN`, `+N`) MUST spread into distinct lateral (`X`) and
   staggered depth (`Z`) formation slots (`CLONE_SPACING_X >= 0.52`, exceeding capsule diameter `0.44`)
   and clamp strictly within the playable highway bounds (`X` in `[-4.5, 4.5]`) so clones never
@@ -69,8 +74,8 @@ and visual separation invariants so gameplay pacing and on-screen feedback remai
   deterministically during `GameState.PLAYING`, wrap seamlessly within highway Z-bounds, and halt
   immediately during non-playing states (`STAGE_CLEAR`, `VICTORY`, `DEFEAT`).
 
-**Rationale**: Players rely on controlled power curves and immediate spatial clarity to experience
-meaningful tactical progression, judge swarm firepower, and read lane targets.
+**Rationale**: Players rely on uninterrupted cannon feedback, controlled power curves, and immediate
+spatial clarity to experience meaningful tactical progression and judge swarm firepower.
 
 ### VI. Articulated 3D Visuals & Zero-HP Destruction Lifecycle
 3D enemy units, bosses, gates, and destructible highway structures MUST present distinct, readable
@@ -87,23 +92,30 @@ silhouettes and a complete visual lifecycle from impact to removal:
 **Rationale**: Arcade combat feel depends on recognizable enemy forms, visceral hit confirmation, and
 unambiguous visual removal when a gate, obstacle, enemy, or boss is destroyed.
 
-### VII. Dynamic Highway Motion, Scrolling Gates, & Endless Survival Escalation
+### VII. Dynamic Highway Motion, Auto-Fire Cannons, & Endless Survival Escalation
 Primary gameplay in Mob Control 3D MUST operate as a dynamic, continuous **Single Endless Survival Phase**
-where the battlefield is perpetually in motion and the objective is to survive as long as possible:
+where cannons shoot automatically at all times and the battlefield escalates relentlessly:
+- Player cannons (`Cannon3D`) MUST fire automatically and continuously at `FIRE_INTERVAL = 0.14s`
+  (`auto_fire = true` by default) during `GameState.PLAYING` without requiring manual `SPACE` or `J`
+  input; the HUD controls hint (`UI/ControlsHint`) MUST reflect steering and menu controls only
+  (`"A/D or ARROWS: STEER | ESC: MENU"`).
 - Multiplier gates (`xN` and `+N` `MultiplierGate3D` blocks) MUST actively advance forward (`+Z`) down the
   highway (with optional horizontal lane oscillation), disappear (`queue_free()`) upon reaching the
-  bottom of the screen, and continuously respawn with randomized modifiers in the upper highway.
+  bottom of the screen (`Z >= 8.2`), and continuously respawn with randomized modifiers in the upper highway.
 - All enemy Soldiers (`MobUnit3D`) and lane-sized Mech Bosses (`GiantEnemy3D`) MUST actively march
   forward (`+Z`) from randomized horizontal lanes; advancing Bosses MUST move faster than drifting gates
   and MUST shatter and destroy any `xN` or `+N` gate they overlap.
-- Spawning of Soldiers and Bosses MUST escalate continuously over survival time (`time_elapsed`),
-  shrinking spawn intervals and scaling squad burst sizes, Boss HP, and concurrent Boss counts while
-  keeping combat uninterrupted when Bosses are killed (`state` remains `GameState.PLAYING` until an
-  enemy breaches `Z >= 9.0`). Legacy stage methods (`init_stage`, `STAGES`) MUST remain backward-compatible
-  so all historical regression tests pass.
+- Spawning of Soldiers and Bosses MUST escalate aggressively over survival time (`time_elapsed`),
+  shrinking spawn intervals and scaling both minimum and maximum Soldier squad burst sizes
+  (`get_soldier_min_burst`, `get_soldier_max_burst`), Soldier durability (`get_scaled_soldier_power`),
+  accelerating Boss HP (`get_scaled_boss_hp`), and concurrent Boss counts (`get_max_concurrent_bosses` up
+  to `5`) while keeping combat uninterrupted when Bosses are killed (`state` remains `GameState.PLAYING`
+  until an enemy breaches `Z >= 9.0`). Legacy stage methods (`init_stage`, `STAGES`) MUST remain
+  backward-compatible so all historical regression tests pass.
 
-**Rationale**: Static gates and stationary enemies stagnate arcade engagement; continuous forward motion,
-gate-crushing Bosses, and time-escalating survival pressure create a dynamic, replayable arcade loop.
+**Rationale**: Automatic continuous cannon fire eliminates input fatigue and firing stalls, while
+aggressive time-based scaling of enemy numbers and durability ensures survival gameplay grows genuinely
+more challenging as time passes.
 
 ## Technical Stack & Engine Constraints
 
@@ -149,4 +161,4 @@ repository and supersedes conflicting ad-hoc practices.
   (`/speckit-plan`), task list (`/speckit-tasks`), and code implementation (`/speckit-implement`) MUST
   verify compliance with Principles I–VII before merge.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
+**Version**: 1.3.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
