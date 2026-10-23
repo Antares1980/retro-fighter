@@ -85,6 +85,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_13_progression_loop_input_latching_and_pacing()
 	test_scenario_14_gate_spread_hires_viewport_and_road_scroller()
 	test_scenario_15_multi_cannon_squad_and_bullet_power_progression()
+	test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -1925,6 +1926,151 @@ func test_scenario_15_multi_cannon_squad_and_bullet_power_progression() -> void:
 	main.reset_stage()
 	assert_equal(main.get_cannon_count(), 1, "reset_stage() resets active cannon count to 1")
 	assert_equal(main.get_bullet_power(), 1, "reset_stage() resets bullet_power to 1")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
+
+func test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx() -> void:
+	print("\nScenario 16: Extended Multi-Wave Stages, 3-Type Obstacles, 3D Enemy/Mech Forms, & Destruction FX (Spec 002 / GWT 1-5)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# =========================================================================
+	# PART 1: GWT 1 - Automatic Stage 1 Initialization & Multi-Wave Progression
+	# =========================================================================
+	assert_equal(main.current_stage_index, 0, "GWT 1: _ready() automatically initializes Stage 1 (index 0)")
+	assert_equal(main.giant_enemy.hp, 1200, "GWT 1: Stage 1 Base HP initialized to 1200 on _ready()")
+	assert_equal(main.current_wave, 1, "GWT 1: Stage 1 starts at Wave 1")
+	assert_equal(main.total_waves_in_stage, 3, "GWT 1: Stage 1 has 3 total waves")
+	assert_equal(main.active_obstacles.size(), 3, "GWT 1: Wave 1 spawns 3 highway obstacles (WALL, HAZARD, MOVING_BLOCK)")
+	if main.wave_status_label != null:
+		assert_true(main.wave_status_label.text.contains("STAGE 1/5 | WAVE 1/3"), "GWT 1: HUD displays STAGE 1/5 | WAVE 1/3")
+
+	# Destroy all Wave 1 obstacles and step -> advances to Wave 2
+	for obs in main.active_obstacles:
+		if is_instance_valid(obs):
+			obs.hp = 0
+	main.step(1.0 / 60.0)
+	assert_equal(main.current_wave, 2, "GWT 1: Clearing Wave 1 obstacles advances current_wave to 2")
+	assert_equal(main.active_obstacles.size(), 3, "GWT 1: Wave 2 spawns 3 new obstacles")
+	assert_true(main.red_mobs.size() >= 4, "GWT 1: Advancing to Wave 2 spawns a Red Raider squad")
+
+	# =========================================================================
+	# PART 2: GWT 2 - Balanced Gate-Charge Power Scaling & Cap (MAX_BULLET_POWER = 25)
+	# =========================================================================
+	main.init_stage(0)
+	main.cleanup_all_mobs()
+	# Unlock all 5 cannons (4 hits) + reach tier 6 (2 hits)
+	main._on_bullet_hit_multiplier_gate(2)
+	main._on_bullet_hit_multiplier_gate(2)
+	main._on_bullet_hit_multiplier_gate(3)
+	main._on_bullet_hit_multiplier_gate(3)
+	main._on_bullet_hit_multiplier_gate(2) # power 1 -> 3
+	main._on_bullet_hit_multiplier_gate(3) # power 3 -> 6
+	assert_equal(main.get_cannon_count(), 5, "GWT 2: 5 cannons unlocked")
+	assert_equal(main.get_bullet_power(), 6, "GWT 2: Initial power tier 6 reached")
+
+	# Next 34 hits accumulate gate_power_charge without increasing bullet_power
+	for _i in range(34):
+		main._on_bullet_hit_multiplier_gate(2)
+	assert_equal(main.get_bullet_power(), 6, "GWT 2: bullet_power remains 6 after 34 gate hits (< GATE_CHARGE_THRESHOLD 35)")
+	assert_equal(main.gate_power_charge, 34, "GWT 2: gate_power_charge is 34")
+
+	# 35th hit increments bullet_power to 7 and resets charge to 0
+	main._on_bullet_hit_multiplier_gate(2)
+	assert_equal(main.get_bullet_power(), 7, "GWT 2: 35th gate hit increments bullet_power from 6 to 7")
+	assert_equal(main.gate_power_charge, 0, "GWT 2: gate_power_charge wraps back to 0")
+
+	# Saturate gate hits and verify strict MAX_BULLET_POWER = 25 cap
+	for _i in range(1000):
+		main._on_bullet_hit_multiplier_gate(5)
+	assert_equal(main.get_bullet_power(), 25, "GWT 2: bullet_power strictly capped at MAX_BULLET_POWER = 25")
+
+	# =========================================================================
+	# PART 3: GWT 3 - Three Obstacle Types (WALL, MOVING_BLOCK, HAZARD)
+	# =========================================================================
+	main.init_stage(0)
+	main.cleanup_all_mobs()
+	var wall_obs: GiantEnemy3D = null
+	var moving_obs: GiantEnemy3D = null
+	var hazard_obs: GiantEnemy3D = null
+	for obs in main.active_obstacles:
+		if obs.is_wall():
+			wall_obs = obs
+		elif obs.is_moving_block():
+			moving_obs = obs
+		elif obs.is_hazard():
+			hazard_obs = obs
+
+	assert_true(wall_obs != null, "GWT 3: WALL obstacle present in Wave 1")
+	assert_true(moving_obs != null, "GWT 3: MOVING_BLOCK obstacle present in Wave 1")
+	assert_true(hazard_obs != null, "GWT 3: HAZARD obstacle present in Wave 1")
+
+	# Verify MOVING_BLOCK horizontal oscillation & highway boundary clamp
+	var initial_mov_x: float = moving_obs.position.x
+	for _step_i in range(15):
+		main.step(1.0 / 60.0)
+	assert_true(abs(moving_obs.position.x - initial_mov_x) > 0.05, "GWT 3: MOVING_BLOCK oscillates horizontally along X")
+	assert_true(moving_obs.position.x >= -4.5 and moving_obs.position.x <= 4.5, "GWT 3: MOVING_BLOCK stays clamped within [-4.5, 4.5]")
+
+	# Verify HAZARD 2x attrition penalty: power-10 bullet deals 5 damage to HAZARD
+	var haz_hp_before: int = hazard_obs.hp
+	var _b_haz = main._spawn_blue_mob(Vector3(hazard_obs.global_position.x, 1.25, hazard_obs.global_position.z), {}, 10)
+	main._resolve_obstacle_contacts()
+	assert_equal(hazard_obs.hp, haz_hp_before - 5, "GWT 3: Power-10 bullet deals 5 damage (2x hazard attrition) to HAZARD obstacle")
+	assert_true(hazard_obs.is_hit_flashing(), "GWT 5: Non-lethal hit triggers hit-flash on obstacle")
+
+	# Verify WALL absorbs full bullet power and spawns Destruction FX when HP reaches 0
+	wall_obs.hp = 8
+	var fx_before: int = main.active_destruction_fx.size()
+	var _b_wall = main._spawn_blue_mob(Vector3(wall_obs.global_position.x, 1.25, wall_obs.global_position.z), {}, 10)
+	main._resolve_obstacle_contacts()
+	assert_equal(main.active_obstacles.size(), 2, "GWT 3 & 5: Destroyed WALL immediately removed from active_obstacles")
+	assert_true(main.active_destruction_fx.size() > fx_before, "GWT 5: Destroying WALL spawns 3D shatter FX in active_destruction_fx")
+
+	# =========================================================================
+	# PART 4: GWT 4 - Articulated 3D Enemy Raider & Giant Mech Silhouettes
+	# =========================================================================
+	var red_raider = main._spawn_red_mob()
+	assert_true(red_raider.get_raider_part_count() >= 6, "GWT 4: Red MobUnit3D has >= 6 articulated 3D raider mesh parts")
+	assert_false(red_raider.mesh_instance.visible, "GWT 4: Red MobUnit3D hides plain capsule mesh")
+	assert_true(red_raider.raider_model != null and red_raider.raider_model.visible, "GWT 4: Red MobUnit3D RaiderModel3D is visible")
+
+	var arm_rot_before: float = red_raider.left_arm_pivot.rotation.x
+	main.step(1.0 / 60.0)
+	assert_true(abs(red_raider.left_arm_pivot.rotation.x - arm_rot_before) > 0.001, "GWT 4: Red raider limbs animate walking stride during step()")
+
+	var blue_bolt = main._spawn_blue_mob(Vector3(0.0, 0.5, 2.0), {}, 1)
+	assert_true(blue_bolt.mesh_instance.visible, "GWT 4: Blue MobUnit3D retains visible energy sphere/capsule mesh")
+	assert_true(main.giant_enemy.get_visual_part_count() >= 6, "GWT 4: GiantEnemy3D Boss builds >= 6 multi-part 3D Mech components")
+
+	# =========================================================================
+	# PART 5: GWT 5 - Boss 0-HP Destruction FX & Complete Disappearance from Screen
+	# =========================================================================
+	main.cleanup_all_mobs()
+	main.giant_enemy.hp = 5
+	assert_true(main.giant_enemy.visible, "GWT 5: Giant Boss is visible while HP > 0")
+	var _b_kill_boss = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z), {}, 5)
+	main.step(1.0 / 60.0)
+
+	assert_equal(main.giant_enemy.hp, 0, "GWT 5: Giant Boss HP reached 0")
+	assert_equal(main.state, MobControlMainScript.GameState.STAGE_CLEAR, "GWT 5: State transitioned to STAGE_CLEAR")
+	assert_false(main.giant_enemy.visible, "GWT 5: Defeated Giant Boss disappears from screen (visible == false)")
+	assert_true(main.active_destruction_fx.size() > 0, "GWT 5: Defeated Giant Boss spawns 3D explosion debris FX")
+
+	# Step _process(delta) for 0.5s during STAGE_CLEAR -> debris FX finishes and cleans itself up
+	for _i in range(35):
+		main._process(1.0 / 60.0)
+	assert_equal(main.active_destruction_fx.size(), 0, "GWT 5: 3D destruction FX self-cleans after 0.45s duration")
+
+	# Advancing to next stage restores Boss visibility
+	main.advance_stage()
+	assert_true(main.giant_enemy.visible, "GWT 5: Advancing to next stage restores Giant Boss visibility")
 
 	main.cleanup_stage_entities()
 	if active_tree != null:

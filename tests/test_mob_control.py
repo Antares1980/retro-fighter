@@ -252,7 +252,7 @@ class TestMobControl(unittest.TestCase):
 
     def test_shield_lock_state_machine_contract(self):
         """Issue #45 / GWT 1, 2: Verify 3-Act Base Shield Lock state machine, Pylons, Counter-Surge, and 0-damage discard."""
-        self.assertIn('enum EntityMode { BASE, PYLON }', self.giant_script)
+        self.assertIn('enum EntityMode { BASE, PYLON', self.giant_script)
         self.assertIn('var is_invulnerable: bool', self.giant_script)
         self.assertIn('var is_shielded: bool', self.giant_script)
         self.assertIn('func is_pylon()', self.giant_script)
@@ -359,6 +359,46 @@ class TestMobControl(unittest.TestCase):
         self.assertIn("func _update_power_visuals()", self.mob_script)
         self.assertIn('node name="CannonStatusLabel" type="Label"', self.main_scene)
         self.assertIn("test_scenario_15_multi_cannon_squad_and_bullet_power_progression", self.test_gd)
+
+    def test_extended_waves_obstacles_3d_forms_and_destruction_contract(self):
+        """Spec 002 / GWT 1-5: Verify multi-wave progression, gate-charge cap, 3 obstacle modes, 3D raider/mech rigs, and destruction FX."""
+        # US1: Multi-Wave Stage Progression & Gate-Charge Power Cap
+        self.assertIn('"waves": 3', self.main_script)
+        self.assertIn('"waves": 5', self.main_script)
+        self.assertIn("const GATE_CHARGE_THRESHOLD: int = 35", self.main_script)
+        self.assertIn("const MAX_BULLET_POWER: int = 25", self.main_script)
+        self.assertIn("const GIANT_FORTIFIED_SPEED: float = 0.18", self.main_script)
+        self.assertIn("var current_wave: int = 1", self.main_script)
+        self.assertIn("var total_waves_in_stage: int = 3", self.main_script)
+        self.assertIn("var gate_power_charge: int = 0", self.main_script)
+        self.assertIn("func _check_wave_progression()", self.main_script)
+
+        # US2: Three Highway Obstacle Modes
+        self.assertIn("enum EntityMode { BASE, PYLON, WALL, MOVING_BLOCK, HAZARD }", self.giant_script)
+        self.assertIn("func is_wall() -> bool", self.giant_script)
+        self.assertIn("func is_moving_block() -> bool", self.giant_script)
+        self.assertIn("func is_hazard() -> bool", self.giant_script)
+        self.assertIn("func step_obstacle(delta: float)", self.giant_script)
+        self.assertIn("var active_obstacles: Array[Node3D]", self.main_script)
+        self.assertIn("func spawn_obstacle(", self.main_script)
+        self.assertIn("func _resolve_obstacle_contacts()", self.main_script)
+        self.assertIn("func on_mob_hit_obstacle(", self.main_script)
+
+        # US3: Articulated 3D Raider & Giant Mech Silhouettes
+        self.assertIn("func _build_raider_model()", self.mob_script)
+        self.assertIn("func step_visuals(delta: float)", self.mob_script)
+        self.assertIn("func get_raider_part_count() -> int", self.mob_script)
+        self.assertIn("func _build_entity_model()", self.giant_script)
+        self.assertIn("func get_visual_part_count() -> int", self.giant_script)
+
+        # US4: Hit Flash, 3D Shatter FX, & Zero-HP Screen Removal
+        self.assertIn("func is_hit_flashing() -> bool", self.giant_script)
+        self.assertIn("const DESTRUCTION_FX_DURATION: float = 0.45", self.main_script)
+        self.assertIn("var active_destruction_fx: Array[Node3D]", self.main_script)
+        self.assertIn("func _spawn_destruction_fx(", self.main_script)
+        self.assertIn("func _step_destruction_fx(delta: float)", self.main_script)
+        self.assertIn("giant_enemy.visible = false", self.main_script)
+        self.assertIn("test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx", self.test_gd)
 
 if __name__ == "__main__":
     unittest.main()

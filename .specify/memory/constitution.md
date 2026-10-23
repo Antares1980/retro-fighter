@@ -6,8 +6,9 @@
 All gameplay loops across 2D (`Main.gd`, `Fighter.gd`, `AIController.gd`) and 3D (`MobControlMain.gd`,
 `Cannon3D.gd`) MUST expose deterministic, frame-decoupled stepping methods (`step(delta)` or integer
 tick counters at 60 Hz). Combat resolution, multiplier gate cloning, lateral formation spreading,
-shield lock state machines, and environmental highway scrolling MUST execute reproducibly in headless
-automated tests without relying on wall-clock timers or asynchronous physics race conditions.
+multi-wave obstacle progression, shield lock state machines, destruction debris physics, and
+environmental highway scrolling MUST execute reproducibly in headless automated tests without relying
+on wall-clock timers or asynchronous physics race conditions.
 
 **Rationale**: Frame-accurate fighting mechanics and high-density 3D swarm simulations require
 deterministic state transitions so that every Behavior-Driven Development (Given/When/Then) scenario
@@ -52,10 +53,13 @@ MUST be guarded with `is_inside_tree()` and null checks for out-of-tree test exe
 **Rationale**: CI runners and headless test harnesses frequently instantiate scenes outside a full
 windowed editor session; defensive typing and tree guards eliminate environment-specific crashes.
 
-### V. Bounded Entity Caps & Spatial Clarity
-Real-time 2D and 3D arenas MUST enforce strict entity caps, boundary clamps, and visual separation
-invariants so on-screen visual feedback accurately reflects underlying simulation state:
+### V. Bounded Entity Caps, Power Scaling, & Spatial Clarity
+Real-time 2D and 3D arenas MUST enforce strict entity caps, power-scaling thresholds, boundary clamps,
+and visual separation invariants so gameplay pacing and on-screen feedback remain balanced:
 - Active plus pending Blue Mobs in Mob Control 3D MUST never exceed `MAX_MOBS = 300`.
+- Squad cannon count MUST be bounded (`MAX_CANNONS = 5`) and `bullet_power` progression MUST enforce
+  gate-charge thresholds (`GATE_CHARGE_THRESHOLD`) and an upper cap (`MAX_BULLET_POWER = 25`) so stages
+  sustain multi-wave tactical pacing rather than collapsing from runaway power inflation.
 - Projectiles duplicated by multiplier gates (`xN`, `+N`) MUST spread into distinct lateral (`X`) and
   staggered depth (`Z`) formation slots (`CLONE_SPACING_X >= 0.52`, exceeding capsule diameter `0.44`)
   and clamp strictly within the playable highway bounds (`X` in `[-4.5, 4.5]`) so clones never
@@ -64,8 +68,22 @@ invariants so on-screen visual feedback accurately reflects underlying simulatio
   deterministically during `GameState.PLAYING`, wrap seamlessly within highway Z-bounds, and halt
   immediately during non-playing states (`STAGE_CLEAR`, `VICTORY`, `DEFEAT`).
 
-**Rationale**: Players rely on immediate visual clarity to judge swarm firepower, gate multiplication,
-and forward momentum.
+**Rationale**: Players rely on controlled power curves and immediate spatial clarity to experience
+meaningful multi-wave progression, judge swarm firepower, and read lane obstacles.
+
+### VI. Articulated 3D Visuals & Zero-HP Destruction Lifecycle
+3D enemy units, bosses, and destructible highway structures MUST present distinct, readable silhouettes
+and a complete visual lifecycle from impact to removal:
+- Enemy units (`MobUnit3D` red raiders) and bosses/fortifications (`GiantEnemy3D` mechs, pylons, vaults,
+  and obstacle walls) MUST construct composite, articulated 3D visual hierarchies (such as head, glowing
+  visor, torso, limbs, or turret pauldrons) rather than bare single-primitive spheres or boxes.
+- Taking non-lethal damage MUST provide immediate visual hit feedback (emissive flash or micro-recoil).
+- Reaching `HP <= 0` MUST immediately disable combat collision, spawn a deterministic 3D shatter or
+  explosion animation, and completely remove (`queue_free()`) or hide (`visible = false`) the destroyed
+  entity so no object reading `HP: 0` ever remains lingering on screen.
+
+**Rationale**: Arcade combat feel depends on recognizable enemy forms, visceral hit confirmation, and
+unambiguous visual removal when an obstacle, enemy, or boss is destroyed.
 
 ## Technical Stack & Engine Constraints
 
@@ -78,15 +96,16 @@ and forward momentum.
 - **Audio Architecture**: All audio streams MUST route through `res://default_bus_layout.tres`
   (`Master`, `Music`, `SFX`) with `autoplay = false` on scene nodes and guarded programmatic playback
   initiation.
-- **3D Readability Standards**: 3D overhead labels (`Label3D` on gates, bosses, vaults, and pylons)
-  MUST use linear mipmap filtering (`BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS`) and HUD
-  banners MUST be sized for crisp readability at the active viewport scale.
+- **3D Readability Standards**: 3D overhead labels (`Label3D` on gates, bosses, vaults, pylons, and
+  destructible walls) MUST use linear mipmap filtering
+  (`BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS`) and HUD banners MUST be sized for crisp
+  readability at the active viewport scale.
 
 ## Development Workflow & Quality Gates
 
 - **Specification & Planning**: All work MUST begin from an explicit specification and implementation
   plan defining Given/When/Then (GWT) acceptance criteria, a component impact table, and INVEST-aligned
-  slices (Pattern A standalone tasks target $\le 300$ LOC and $\le 6$ modified files).
+  slices (Pattern A standalone tasks target $\le 350$ LOC and $\le 6$ modified files).
 - **Test-Driven Compliance**: Both `python -m unittest discover -s tests` and
   `godot --headless -s res://tests/test_runner.gd` MUST pass with 0 failures and 0 script errors prior
   to opening or merging any Pull Request.
@@ -108,6 +127,6 @@ repository and supersedes conflicting ad-hoc practices.
   - `PATCH`: Wording clarifications, formatting fixes, or non-semantic refinements.
 - **Compliance Review**: Every feature specification (`/speckit-specify`), implementation plan
   (`/speckit-plan`), task list (`/speckit-tasks`), and code implementation (`/speckit-implement`) MUST
-  verify compliance with Principles I–V before merge.
+  verify compliance with Principles I–VI before merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
+**Version**: 1.1.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
