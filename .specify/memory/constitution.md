@@ -4,11 +4,12 @@
 
 ### I. Deterministic Step-Driven Simulation
 All gameplay loops across 2D (`Main.gd`, `Fighter.gd`, `AIController.gd`) and 3D (`MobControlMain.gd`,
-`Cannon3D.gd`) MUST expose deterministic, frame-decoupled stepping methods (`step(delta)` or integer
-tick counters at 60 Hz). Combat resolution, multiplier gate cloning, lateral formation spreading,
-multi-wave obstacle progression, shield lock state machines, destruction debris physics, and
-environmental highway scrolling MUST execute reproducibly in headless automated tests without relying
-on wall-clock timers or asynchronous physics race conditions.
+`Cannon3D.gd`, `MultiplierGate3D.gd`, `GiantEnemy3D.gd`) MUST expose deterministic, frame-decoupled
+stepping methods (`step(delta)` or integer tick counters at 60 Hz). Combat resolution, multiplier gate
+cloning and forward scrolling, lateral formation spreading, time-escalating enemy/boss spawners, shield
+lock state machines, destruction debris physics, and environmental highway scrolling MUST execute
+reproducibly in headless automated tests without relying on wall-clock timers or asynchronous physics
+race conditions.
 
 **Rationale**: Frame-accurate fighting mechanics and high-density 3D swarm simulations require
 deterministic state transitions so that every Behavior-Driven Development (Given/When/Then) scenario
@@ -58,8 +59,8 @@ Real-time 2D and 3D arenas MUST enforce strict entity caps, power-scaling thresh
 and visual separation invariants so gameplay pacing and on-screen feedback remain balanced:
 - Active plus pending Blue Mobs in Mob Control 3D MUST never exceed `MAX_MOBS = 300`.
 - Squad cannon count MUST be bounded (`MAX_CANNONS = 5`) and `bullet_power` progression MUST enforce
-  gate-charge thresholds (`GATE_CHARGE_THRESHOLD`) and an upper cap (`MAX_BULLET_POWER = 25`) so stages
-  sustain multi-wave tactical pacing rather than collapsing from runaway power inflation.
+  gate-charge thresholds (`GATE_CHARGE_THRESHOLD`) and an upper cap (`MAX_BULLET_POWER = 25`) so gameplay
+  sustains tactical pacing rather than collapsing from runaway power inflation.
 - Projectiles duplicated by multiplier gates (`xN`, `+N`) MUST spread into distinct lateral (`X`) and
   staggered depth (`Z`) formation slots (`CLONE_SPACING_X >= 0.52`, exceeding capsule diameter `0.44`)
   and clamp strictly within the playable highway bounds (`X` in `[-4.5, 4.5]`) so clones never
@@ -69,21 +70,40 @@ and visual separation invariants so gameplay pacing and on-screen feedback remai
   immediately during non-playing states (`STAGE_CLEAR`, `VICTORY`, `DEFEAT`).
 
 **Rationale**: Players rely on controlled power curves and immediate spatial clarity to experience
-meaningful multi-wave progression, judge swarm firepower, and read lane obstacles.
+meaningful tactical progression, judge swarm firepower, and read lane targets.
 
 ### VI. Articulated 3D Visuals & Zero-HP Destruction Lifecycle
-3D enemy units, bosses, and destructible highway structures MUST present distinct, readable silhouettes
-and a complete visual lifecycle from impact to removal:
+3D enemy units, bosses, gates, and destructible highway structures MUST present distinct, readable
+silhouettes and a complete visual lifecycle from impact to removal:
 - Enemy units (`MobUnit3D` red raiders) and bosses/fortifications (`GiantEnemy3D` mechs, pylons, vaults,
   and obstacle walls) MUST construct composite, articulated 3D visual hierarchies (such as head, glowing
   visor, torso, limbs, or turret pauldrons) rather than bare single-primitive spheres or boxes.
 - Taking non-lethal damage MUST provide immediate visual hit feedback (emissive flash or micro-recoil).
-- Reaching `HP <= 0` MUST immediately disable combat collision, spawn a deterministic 3D shatter or
-  explosion animation, and completely remove (`queue_free()`) or hide (`visible = false`) the destroyed
-  entity so no object reading `HP: 0` ever remains lingering on screen.
+- Reaching `HP <= 0`—or when an advancing Boss crushes an `xN` / `+N` gate (`MultiplierGate3D`)—MUST
+  immediately disable collision, spawn a deterministic 3D shatter or explosion animation, and completely
+  remove (`queue_free()`) or hide (`visible = false`) the destroyed entity so no destroyed gate or `HP: 0`
+  entity ever remains lingering on screen.
 
 **Rationale**: Arcade combat feel depends on recognizable enemy forms, visceral hit confirmation, and
-unambiguous visual removal when an obstacle, enemy, or boss is destroyed.
+unambiguous visual removal when a gate, obstacle, enemy, or boss is destroyed.
+
+### VII. Dynamic Highway Motion, Scrolling Gates, & Endless Survival Escalation
+Primary gameplay in Mob Control 3D MUST operate as a dynamic, continuous **Single Endless Survival Phase**
+where the battlefield is perpetually in motion and the objective is to survive as long as possible:
+- Multiplier gates (`xN` and `+N` `MultiplierGate3D` blocks) MUST actively advance forward (`+Z`) down the
+  highway (with optional horizontal lane oscillation), disappear (`queue_free()`) upon reaching the
+  bottom of the screen, and continuously respawn with randomized modifiers in the upper highway.
+- All enemy Soldiers (`MobUnit3D`) and lane-sized Mech Bosses (`GiantEnemy3D`) MUST actively march
+  forward (`+Z`) from randomized horizontal lanes; advancing Bosses MUST move faster than drifting gates
+  and MUST shatter and destroy any `xN` or `+N` gate they overlap.
+- Spawning of Soldiers and Bosses MUST escalate continuously over survival time (`time_elapsed`),
+  shrinking spawn intervals and scaling squad burst sizes, Boss HP, and concurrent Boss counts while
+  keeping combat uninterrupted when Bosses are killed (`state` remains `GameState.PLAYING` until an
+  enemy breaches `Z >= 9.0`). Legacy stage methods (`init_stage`, `STAGES`) MUST remain backward-compatible
+  so all historical regression tests pass.
+
+**Rationale**: Static gates and stationary enemies stagnate arcade engagement; continuous forward motion,
+gate-crushing Bosses, and time-escalating survival pressure create a dynamic, replayable arcade loop.
 
 ## Technical Stack & Engine Constraints
 
@@ -127,6 +147,6 @@ repository and supersedes conflicting ad-hoc practices.
   - `PATCH`: Wording clarifications, formatting fixes, or non-semantic refinements.
 - **Compliance Review**: Every feature specification (`/speckit-specify`), implementation plan
   (`/speckit-plan`), task list (`/speckit-tasks`), and code implementation (`/speckit-implement`) MUST
-  verify compliance with Principles I–VI before merge.
+  verify compliance with Principles I–VII before merge.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
+**Version**: 1.2.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23

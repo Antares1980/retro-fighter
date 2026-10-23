@@ -3,7 +3,7 @@ extends Area3D
 
 ## Giant Mech Boss, Shield Pylon, Vault, & Highway Obstacles for Mob Control 3D.
 ## Supports EntityMode { BASE, PYLON, WALL, MOVING_BLOCK, HAZARD } with composite 3D silhouettes,
-## horizontal lane oscillation for moving blocks, hit-flash feedback, and zero-HP screen removal.
+## lane-sized advancing Bosses, horizontal lane oscillation for moving blocks, hit-flash feedback, and zero-HP screen removal.
 
 enum EntityMode { BASE, PYLON, WALL, MOVING_BLOCK, HAZARD }
 
@@ -30,6 +30,7 @@ var blockaded_gate: Node3D:
 	set(val):
 		target_gate = val
 
+var is_lane_boss: bool = false
 var half_width: float = 2.0
 var half_depth: float = 1.25
 var half_height: float = 1.25
@@ -40,10 +41,12 @@ var osc_amplitude: float = 2.0
 var osc_speed: float = 2.2
 var osc_phase: float = 0.0
 var osc_time: float = 0.0
+var anim_time: float = 0.0
 
 var hit_flash_timer: float = 0.0
 var mech_model: Node3D = null
 var _built_mode: int = -1
+var _built_width: float = -1.0
 var _model_parts: Array[MeshInstance3D] = []
 var _default_materials: Array[StandardMaterial3D] = []
 var _flash_material: StandardMaterial3D = null
@@ -109,6 +112,7 @@ func step_obstacle(delta: float) -> void:
 	step_visuals(delta)
 
 func step_visuals(delta: float) -> void:
+	anim_time += delta
 	if hit_flash_timer > 0.0:
 		hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
 		if hit_flash_timer <= 0.0:
@@ -118,6 +122,8 @@ func step_visuals(delta: float) -> void:
 					part.material_override = _default_materials[i]
 			if is_instance_valid(mech_model):
 				mech_model.scale = Vector3.ONE
+	if is_instance_valid(mech_model) and speed > 0.0 and is_base():
+		mech_model.position.y = abs(sin(anim_time * 7.5)) * 0.08
 
 func _build_entity_model() -> void:
 	if base_mesh == null:
@@ -128,7 +134,8 @@ func _build_entity_model() -> void:
 	var effective_mode: int = int(entity_mode)
 	if is_vault():
 		effective_mode = 99
-	if mech_model != null and is_instance_valid(mech_model) and _built_mode == effective_mode:
+	var w: float = maxf(1.2, half_width * 2.0) if (is_lane_boss or is_obstacle() or is_vault() or is_pylon()) else 8.8
+	if mech_model != null and is_instance_valid(mech_model) and _built_mode == effective_mode and is_equal_approx(_built_width, w):
 		return
 
 	if mech_model != null and is_instance_valid(mech_model):
@@ -140,8 +147,8 @@ func _build_entity_model() -> void:
 	mech_model.name = "MechModel3D"
 	add_child(mech_model)
 	_built_mode = effective_mode
+	_built_width = w
 
-	var w: float = maxf(1.2, half_width * 2.0) if (is_obstacle() or is_vault() or is_pylon()) else 8.8
 	var primary_col := Color(0.92, 0.70, 0.12, 1.0)
 	var secondary_col := Color(0.28, 0.30, 0.36, 1.0)
 	var accent_col := Color(1.0, 0.22, 0.18, 1.0)
@@ -166,6 +173,10 @@ func _build_entity_model() -> void:
 		primary_col = Color(0.85, 0.12, 0.22, 1.0)
 		secondary_col = Color(0.22, 0.06, 0.10, 1.0)
 		accent_col = Color(1.0, 0.45, 0.10, 1.0)
+	elif is_lane_boss:
+		primary_col = Color(0.88, 0.24, 0.16, 1.0)
+		secondary_col = Color(0.24, 0.12, 0.14, 1.0)
+		accent_col = Color(1.0, 0.78, 0.12, 1.0)
 
 	_add_box_part("CoreChassis", Vector3(w * 0.72, 1.85, 1.45), Vector3(0.0, -0.15, 0.0), primary_col, 0.15)
 	_add_box_part("CommandHead", Vector3(w * 0.34, 0.85, 1.05), Vector3(0.0, 1.05, 0.05), secondary_col, 0.1)
@@ -219,6 +230,8 @@ func _update_ui() -> void:
 			label.text = "HAZARD: %d" % hp
 		elif is_shielded or is_invulnerable:
 			label.text = "SHIELDED: %d" % hp
+		elif is_lane_boss:
+			label.text = "BOSS: %d" % hp
 		else:
 			label.text = "HP: %d" % hp
 	if health_bar != null:
@@ -229,6 +242,7 @@ func reset(p_hp: int = 150) -> void:
 	hp = p_hp
 	max_hp = p_hp
 	entity_mode = EntityMode.BASE
+	is_lane_boss = false
 	is_invulnerable = false
 	is_shielded = false
 	osc_enabled = false
@@ -238,4 +252,5 @@ func reset(p_hp: int = 150) -> void:
 	_build_entity_model()
 	if is_instance_valid(mech_model):
 		mech_model.scale = Vector3.ONE
+		mech_model.position = Vector3.ZERO
 	_update_ui()

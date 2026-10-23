@@ -4,7 +4,8 @@ extends Node3D
 ## Main scene controller for Mob Control 3D.
 ## Manages 4-phase deterministic stepping: Motion -> Contact Resolution -> State Evaluation -> Bounds Cleanup.
 ## Enforces MAX_MOBS = 300 cap, multi-cannon squad (up to 5 cannons), gate-charge bullet power scaling,
-## multi-wave highway obstacle progression, 3D shatter/explosion animations, and Giant Boss assault.
+## Single Endless Survival Phase with dynamic scrolling/respawning gates, gate-crushing advancing Bosses,
+## time-escalating Soldier & Boss waves, 3D shatter/explosion animations, and legacy multi-stage support.
 
 signal return_to_menu_requested
 
@@ -88,6 +89,13 @@ const STAGES: Array[Dictionary] = [
 	},
 ]
 
+const BASELINE_GATES: Array[Dictionary] = [
+	{"name": "gate_left_1", "pos": Vector3(-2.5, 1.0, -2.0), "op": "+", "val": 2},
+	{"name": "gate_right_1", "pos": Vector3(2.5, 1.0, -2.0), "op": "x", "val": 2},
+	{"name": "gate_left_2", "pos": Vector3(-2.5, 1.0, -8.0), "op": "x", "val": 3},
+	{"name": "gate_right_2", "pos": Vector3(2.5, 1.0, -8.0), "op": "+", "val": 5},
+]
+
 const MAX_MOBS: int = 300
 const MAX_CANNONS: int = 5
 const GATE_CHARGE_THRESHOLD: int = 35
@@ -101,6 +109,17 @@ const GIANT_FORTIFIED_SPEED: float = 0.18
 const DESTRUCTION_FX_DURATION: float = 0.45
 const RED_SPAWN_START_TIME: float = 1.0
 const RED_SPAWN_INTERVAL: float = 1.0
+
+const GATE_SCROLL_SPEED: float = 1.8
+const GATE_DESPAWN_Z: float = 8.2
+const GATE_SPAWN_Z: float = -16.5
+const BOSS_BASE_SPEED: float = 2.6
+const BOSS_BASE_HP: int = 140
+const BOSS_HALF_WIDTH: float = 1.55
+const SOLDIER_BASE_INTERVAL: float = 1.4
+const SOLDIER_MIN_INTERVAL: float = 0.28
+const BOSS_BASE_INTERVAL: float = 14.0
+const BOSS_MIN_INTERVAL: float = 5.5
 
 const HI_RES_SIZE: Vector2i = Vector2i(1152, 672)
 const RETRO_RES_SIZE: Vector2i = Vector2i(384, 224)
@@ -123,9 +142,23 @@ var highway_min_z: float = -32.0
 var current_wave: int = 1
 var total_waves_in_stage: int = 3
 var gate_power_charge: int = 0
+var survival_mode: bool = true
+var dynamic_gates_enabled: bool = true
+var bosses_defeated: int = 0
+var soldiers_defeated: int = 0
+var best_survival_time: float = 0.0
+var gate_spawn_timer: float = 0.0
+var next_gate_spawn_interval: float = 3.0
+var boss_spawn_timer: float = 0.0
+var next_boss_spawn_interval: float = 7.5
+var soldier_spawn_timer: float = 0.0
+var next_soldier_spawn_interval: float = 1.2
+var _dynamic_gate_seq: int = 0
+
 var active_pylons: Array[Node3D] = []
 var active_vaults: Array[Node3D] = []
 var active_obstacles: Array[Node3D] = []
+var active_bosses: Array[Node3D] = []
 var active_destruction_fx: Array[Node3D] = []
 var active_surge_units: Array = []
 var road_scroller_nodes: Array[Node3D] = []
@@ -174,7 +207,7 @@ func _ready() -> void:
 	if is_instance_valid(cannon) and not cannon.shoot_requested.is_connected(_on_cannon_shoot_requested):
 		cannon.shoot_requested.connect(_on_cannon_shoot_requested)
 	_ensure_cannons_initialized()
-	init_stage(0)
+	init_survival_phase()
 
 func _exit_tree() -> void:
 	_restore_retro_viewport()
@@ -252,6 +285,13 @@ func _update_cannon_squad_positions() -> void:
 	if is_instance_valid(cannon_power_label_3d):
 		cannon_power_label_3d.position = Vector3(cannon.position.x, cannon.position.y + 1.15, cannon.position.z)
 
+func _format_survival_time(sec_val: float) -> String:
+	var total_sec: int = maxi(0, int(floor(sec_val)))
+	@warning_ignore("integer_division")
+	var mins: int = total_sec / 60
+	var secs: int = total_sec % 60
+	return "%02d:%02d" % [mins, secs]
+
 func _update_cannon_status_ui() -> void:
 	_ensure_cannons_initialized()
 	var count: int = maxi(1, cannons.size())
@@ -275,7 +315,10 @@ func _update_cannon_status_ui() -> void:
 				wave_status_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
 				wave_status_label.add_theme_constant_override("outline_size", 4)
 				ui_layer.add_child(wave_status_label)
-		wave_status_label.text = "STAGE %d/%d | WAVE %d/%d" % [current_stage_index + 1, STAGES.size(), current_wave, total_waves_in_stage]
+		if survival_mode:
+			wave_status_label.text = "SURVIVAL TIME: %s | BOSSES: %d | KILLS: %d" % [_format_survival_time(time_elapsed), bosses_defeated, soldiers_defeated]
+		else:
+			wave_status_label.text = "STAGE %d/%d | WAVE %d/%d" % [current_stage_index + 1, STAGES.size(), current_wave, total_waves_in_stage]
 	if cannon_power_label_3d == null or not is_instance_valid(cannon_power_label_3d):
 		cannon_power_label_3d = get_node_or_null("CannonPowerLabel3D") as Label3D
 		if cannon_power_label_3d == null:
@@ -429,6 +472,9 @@ func step(delta: float) -> void:
 	for i in range(active_obstacles.size() - 1, -1, -1):
 		if not is_instance_valid(active_obstacles[i]) or active_obstacles[i].is_queued_for_deletion():
 			active_obstacles.remove_at(i)
+	for i in range(active_bosses.size() - 1, -1, -1):
+		if not is_instance_valid(active_bosses[i]) or active_bosses[i].is_queued_for_deletion():
+			active_bosses.remove_at(i)
 
 	# --- Phase 1: Motion & Spawner ---
 	_step_road_scroller(delta)
@@ -450,11 +496,24 @@ func step(delta: float) -> void:
 			if mob.has_method("step_visuals"):
 				mob.step_visuals(delta)
 
-	if is_instance_valid(giant_enemy):
+	if not survival_mode and is_instance_valid(giant_enemy) and giant_enemy.visible:
 		var g_spd: float = GIANT_FORTIFIED_SPEED if not active_obstacles.is_empty() else GIANT_SPEED
 		giant_enemy.position.z += g_spd * delta
 		if giant_enemy.has_method("step_visuals"):
 			giant_enemy.step_visuals(delta)
+
+	for boss in active_bosses:
+		if is_instance_valid(boss) and not boss.is_queued_for_deletion():
+			var b_spd: float = boss.speed if ("speed" in boss and boss.speed > 0.0) else BOSS_BASE_SPEED
+			boss.position.z += b_spd * delta
+			if boss.has_method("step_visuals"):
+				boss.step_visuals(delta)
+
+	if dynamic_gates_enabled:
+		for gate in get_all_gates():
+			if is_instance_valid(gate) and not gate.is_queued_for_deletion():
+				if gate.has_method("step_gate"):
+					gate.step_gate(delta)
 
 	for pylon in active_pylons:
 		if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
@@ -477,28 +536,94 @@ func step(delta: float) -> void:
 				obs.step_obstacle(delta)
 
 	time_elapsed += delta
-	red_spawn_timer += delta
-	var cfg: Dictionary = get_current_stage_config()
-	var spawn_interval: float = float(cfg.get("red_spawn_interval", RED_SPAWN_INTERVAL))
-	while red_spawn_timer >= RED_SPAWN_START_TIME:
-		red_spawn_timer -= spawn_interval
-		_spawn_red_mob()
+	if survival_mode:
+		_step_survival_spawners(delta)
+	else:
+		red_spawn_timer += delta
+		var cfg: Dictionary = get_current_stage_config()
+		var spawn_interval: float = float(cfg.get("red_spawn_interval", RED_SPAWN_INTERVAL))
+		while red_spawn_timer >= RED_SPAWN_START_TIME:
+			red_spawn_timer -= spawn_interval
+			_spawn_red_mob()
 
 	# --- Phase 2: Explicit Contact Resolution Pass ---
 	_resolve_vault_contacts()
 	_resolve_gate_contacts()
+	_resolve_boss_gate_destruction()
 	_resolve_mob_clashes()
 	_resolve_pylon_contacts()
-	_resolve_giant_contacts()
-	_resolve_obstacle_contacts()
-	_check_shield_release()
-	_check_wave_progression()
+	_resolve_boss_contacts()
+	if not survival_mode:
+		_resolve_giant_contacts()
+		_resolve_obstacle_contacts()
+		_check_shield_release()
+		_check_wave_progression()
 
 	# --- Phase 3: State Evaluation & Latch ---
 	_evaluate_game_state()
 
 	# --- Phase 4: Bounds Cleanup ---
 	_cleanup_out_of_bounds_mobs()
+
+func get_soldier_max_burst(elapsed: float) -> int:
+	return mini(8, 2 + int(floor(maxf(0.0, elapsed) / 18.0)))
+
+func get_max_concurrent_bosses(elapsed: float) -> int:
+	var t: float = maxf(0.0, elapsed)
+	if t >= 120.0:
+		return 4
+	elif t >= 70.0:
+		return 3
+	elif t >= 30.0:
+		return 2
+	return 1
+
+func get_scaled_boss_hp(elapsed: float) -> int:
+	return BOSS_BASE_HP + int(floor(maxf(0.0, elapsed) * 4.5))
+
+func _step_survival_spawners(delta: float) -> void:
+	# 1. Dynamic Gate Stream Spawner
+	gate_spawn_timer += delta
+	var live_gates_count: int = 0
+	for g in get_all_gates():
+		if is_instance_valid(g) and not g.is_queued_for_deletion():
+			live_gates_count += 1
+	if gate_spawn_timer >= next_gate_spawn_interval or (live_gates_count < 2 and time_elapsed >= 0.5):
+		gate_spawn_timer = 0.0
+		next_gate_spawn_interval = rng.randf_range(2.6, 4.0)
+		spawn_random_gate(GATE_SPAWN_Z)
+
+	# 2. Time-Escalating Soldier Spawner
+	red_spawn_timer += delta
+	soldier_spawn_timer += delta
+	var soldier_trigger: float = maxf(red_spawn_timer, soldier_spawn_timer)
+	if soldier_trigger >= next_soldier_spawn_interval:
+		red_spawn_timer = 0.0
+		soldier_spawn_timer = 0.0
+		var base_soldier_int: float = maxf(SOLDIER_MIN_INTERVAL, SOLDIER_BASE_INTERVAL - (time_elapsed / 60.0) * 0.55)
+		next_soldier_spawn_interval = base_soldier_int * rng.randf_range(0.8, 1.2)
+		var max_burst: int = get_soldier_max_burst(time_elapsed)
+		var burst_count: int = rng.randi_range(1, max_burst)
+		for i in range(burst_count):
+			var r_mob := _spawn_red_mob()
+			if r_mob != null:
+				r_mob.position = Vector3(rng.randf_range(-3.8, 3.8), 0.5, -22.0 - float(i) * 0.55)
+				if time_elapsed > 2.0:
+					r_mob.speed = RED_SPEED * clampf(1.0 + time_elapsed / 180.0, 1.0, 1.65)
+
+	# 3. Time-Escalating Boss Spawner
+	boss_spawn_timer += delta
+	var max_bosses: int = get_max_concurrent_bosses(time_elapsed)
+	if boss_spawn_timer >= next_boss_spawn_interval:
+		boss_spawn_timer = 0.0
+		var base_boss_int: float = maxf(BOSS_MIN_INTERVAL, BOSS_BASE_INTERVAL - (time_elapsed / 30.0) * 2.0)
+		next_boss_spawn_interval = base_boss_int * rng.randf_range(0.85, 1.15)
+		if active_bosses.size() < max_bosses:
+			var b_hp: int = get_scaled_boss_hp(time_elapsed)
+			var b_spd: float = clampf(BOSS_BASE_SPEED + (time_elapsed / 120.0) * 0.8, BOSS_BASE_SPEED, 3.8)
+			spawn_boss(Vector3(rng.randf_range(-2.8, 2.8), 1.25, -23.5), b_hp, b_spd)
+
+	_update_cannon_status_ui()
 
 func _on_cannon_shoot_requested(muzzle_pos: Vector3) -> void:
 	if state != GameState.PLAYING:
@@ -531,12 +656,120 @@ func _spawn_red_mob() -> MobUnit3DScript:
 	if state != GameState.PLAYING:
 		return null
 	var mob = MobUnitScene.instantiate() as MobUnit3DScript
-	var x = rng.randf_range(-4.5, 4.5)
+	var x = rng.randf_range(-3.8, 3.8)
 	mob.position = Vector3(x, 0.5, -22.0)
 	mob.setup("red", 1)
 	add_child(mob)
 	red_mobs.append(mob)
 	return mob
+
+func spawn_boss(arg1: Variant = Vector3(0.0, 1.25, -22.0), arg2: Variant = -1, speed_val: float = -1.0) -> GiantEnemy3DScript:
+	var pos: Vector3 = Vector3(0.0, 1.25, -22.0)
+	var hp_val: int = -1
+	if arg1 is Vector3:
+		pos = arg1
+		if arg2 is int or arg2 is float:
+			hp_val = int(arg2)
+	elif arg1 is int or arg1 is float:
+		hp_val = int(arg1)
+		if arg2 is Vector3:
+			pos = arg2
+		else:
+			pos = Vector3(rng.randf_range(-2.8, 2.8), 1.25, -22.0)
+	var boss: GiantEnemy3DScript
+	if GiantEnemyScene != null:
+		boss = GiantEnemyScene.instantiate() as GiantEnemy3DScript
+	else:
+		boss = GiantEnemy3DScript.new()
+	var eff_hp: int = hp_val if hp_val > 0 else get_scaled_boss_hp(time_elapsed)
+	var eff_spd: float = speed_val if speed_val > 0.0 else BOSS_BASE_SPEED
+	boss.is_lane_boss = true
+	boss.half_width = BOSS_HALF_WIDTH
+	boss.half_depth = 1.0
+	boss.half_height = 1.25
+	boss.entity_mode = GiantEnemy3DScript.EntityMode.BASE
+	boss.hp = maxi(1, eff_hp)
+	boss.max_hp = maxi(1, eff_hp)
+	boss.speed = eff_spd
+	boss.is_invulnerable = false
+	boss.is_shielded = false
+	boss.position = pos
+	boss.name = "SurvivalBoss_%d" % (active_bosses.size() + bosses_defeated + 1)
+	boss.add_to_group("bosses")
+	add_child(boss)
+	active_bosses.append(boss)
+	boss._build_entity_model()
+	boss._update_ui()
+	return boss
+
+func spawn_random_gate(z_pos: float = GATE_SPAWN_Z) -> MultiplierGate3DScript:
+	var gate: MultiplierGate3DScript
+	if MultiplierGate3DScene != null:
+		gate = MultiplierGate3DScene.instantiate() as MultiplierGate3DScript
+	else:
+		gate = MultiplierGate3DScript.new()
+	_dynamic_gate_seq += 1
+	gate.name = "dyn_gate_%d" % _dynamic_gate_seq
+	gate.gate_id = gate.name
+	var is_mult: bool = rng.randf() < 0.38
+	if is_mult:
+		gate.operation = "x"
+		var mult_choices: Array[int] = [2, 2, 3, 3, 4]
+		gate.value = mult_choices[rng.randi_range(0, mult_choices.size() - 1)]
+	else:
+		gate.operation = "+"
+		var add_choices: Array[int] = [2, 3, 4, 5, 6]
+		gate.value = add_choices[rng.randi_range(0, add_choices.size() - 1)]
+	var lane_x: float = rng.randf_range(-2.8, 2.8)
+	gate.position = Vector3(lane_x, 1.0, z_pos)
+	gate.move_enabled = true
+	gate.scroll_speed = GATE_SCROLL_SPEED
+	if rng.randf() < 0.45:
+		gate.osc_enabled = true
+		gate.osc_base_x = clampf(lane_x, -1.8, 1.8)
+		gate.osc_amplitude = rng.randf_range(1.0, 1.6)
+		gate.osc_speed = rng.randf_range(1.4, 2.3)
+	gate.add_to_group("dynamic_gates")
+	if gates_container != null:
+		gates_container.add_child(gate)
+	else:
+		add_child(gate)
+	gate.update_label()
+	return gate
+
+func _ensure_baseline_gates(moving: bool) -> void:
+	if gates_container == null:
+		gates_container = get_node_or_null("Gates")
+		if gates_container == null:
+			gates_container = Node3D.new()
+			gates_container.name = "Gates"
+			add_child(gates_container)
+
+	for cfg in BASELINE_GATES:
+		var g_name: String = String(cfg["name"])
+		var existing: MultiplierGate3DScript = gates_container.get_node_or_null(g_name) as MultiplierGate3DScript
+		if existing != null and existing.is_queued_for_deletion():
+			gates_container.remove_child(existing)
+			existing.free()
+			existing = null
+		if existing == null:
+			if MultiplierGate3DScene != null:
+				existing = MultiplierGate3DScene.instantiate() as MultiplierGate3DScript
+			else:
+				existing = MultiplierGate3DScript.new()
+			existing.name = g_name
+			gates_container.add_child(existing)
+		existing.gate_id = g_name
+		existing.operation = String(cfg["op"])
+		existing.value = int(cfg["val"])
+		existing.position = cfg["pos"]
+		existing.is_locked = false
+		existing.blockading_vault = null
+		existing.move_enabled = moving
+		existing.scroll_speed = GATE_SCROLL_SPEED if moving else 0.0
+		existing.osc_enabled = false
+		existing.osc_time = 0.0
+		existing.update_label()
 
 func _compute_gate_formation_slot(idx: int, total_group: int, anchor_x: float, base_z: float) -> Vector3:
 	@warning_ignore("integer_division")
@@ -697,6 +930,7 @@ func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 	var red_pos: Vector3 = red.global_position if is_inside_tree() else red.position
 	red.is_consumed = true
 	red.queue_free()
+	soldiers_defeated += 1
 	_spawn_destruction_fx(red_pos, Vector3(0.5, 0.6, 0.5), Color(0.95, 0.22, 0.22))
 	if blue_pwr > red_hp:
 		blue.power = blue_pwr - red_hp
@@ -705,6 +939,32 @@ func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 		blue.is_consumed = true
 		blue.queue_free()
 	_check_shield_release()
+
+func on_boss_destroy_gate(boss: GiantEnemy3DScript, gate: MultiplierGate3DScript) -> void:
+	if not is_instance_valid(boss) or not is_instance_valid(gate) or gate.is_queued_for_deletion():
+		return
+	var g_pos: Vector3 = gate.global_position if is_inside_tree() else gate.position
+	_spawn_destruction_fx(g_pos, Vector3(2.4, 1.5, 0.8), Color(0.25, 0.78, 1.0))
+	gate.is_locked = true
+	gate.queue_free()
+
+func on_mob_hit_boss(blue: MobUnit3DScript, boss: GiantEnemy3DScript) -> void:
+	if not is_live(blue) or not is_instance_valid(boss) or boss.is_queued_for_deletion():
+		return
+	var dmg: int = maxi(1, blue.power if "power" in blue else 1)
+	blue.is_consumed = true
+	blue.queue_free()
+	boss.take_damage(dmg)
+	if boss.hp <= 0:
+		var b_pos: Vector3 = boss.global_position if is_inside_tree() else boss.position
+		_spawn_destruction_fx(b_pos, Vector3(3.5, 2.2, 1.8), Color(1.0, 0.72, 0.15))
+		bosses_defeated += 1
+		var idx: int = active_bosses.find(boss)
+		if idx != -1:
+			active_bosses.remove_at(idx)
+		if not boss.is_queued_for_deletion():
+			boss.queue_free()
+		_update_cannon_status_ui()
 
 func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
@@ -955,10 +1215,10 @@ func get_all_gates() -> Array:
 	var list: Array = []
 	if gates_container != null:
 		for child in gates_container.get_children():
-			if child is MultiplierGate3DScript:
+			if child is MultiplierGate3DScript and not child.is_queued_for_deletion():
 				list.append(child)
 	for child in get_children():
-		if child is MultiplierGate3DScript and not list.has(child):
+		if child is MultiplierGate3DScript and not child.is_queued_for_deletion() and not list.has(child):
 			list.append(child)
 	for v in active_vaults:
 		if is_instance_valid(v):
@@ -971,7 +1231,7 @@ func get_all_gates() -> Array:
 				bg = v.get_meta("target_gate")
 			elif v.has_meta("blockaded_gate"):
 				bg = v.get_meta("blockaded_gate")
-			if is_instance_valid(bg) and not list.has(bg):
+			if is_instance_valid(bg) and not bg.is_queued_for_deletion() and not list.has(bg):
 				list.append(bg)
 
 	return list
@@ -1023,6 +1283,48 @@ func _resolve_gate_contacts() -> void:
 			   abs(red.global_position.y - gy) <= (1.0 + 0.35):
 				on_red_mob_entered_gate(red, gate)
 
+func _resolve_boss_gate_destruction() -> void:
+	if active_bosses.is_empty():
+		return
+	var gates: Array = get_all_gates()
+	for boss in active_bosses:
+		if not is_instance_valid(boss) or boss.is_queued_for_deletion() or boss.hp <= 0:
+			continue
+		var bx: float = boss.global_position.x if is_inside_tree() else boss.position.x
+		var bz: float = boss.global_position.z if is_inside_tree() else boss.position.z
+		var b_hw: float = boss.half_width if ("half_width" in boss and boss.half_width > 0.0) else 1.55
+		var b_hz: float = boss.half_depth if ("half_depth" in boss and boss.half_depth > 0.0) else 1.0
+		for gate in gates:
+			if not is_instance_valid(gate) or gate.is_queued_for_deletion():
+				continue
+			var gx: float = gate.global_position.x if is_inside_tree() else gate.position.x
+			var gz: float = gate.global_position.z if is_inside_tree() else gate.position.z
+			if abs(bx - gx) <= (b_hw + 1.8) and abs(bz - gz) <= (b_hz + 0.45):
+				on_boss_destroy_gate(boss, gate)
+
+func _resolve_boss_contacts() -> void:
+	for i in range(active_bosses.size() - 1, -1, -1):
+		var boss = active_bosses[i]
+		if not is_instance_valid(boss) or boss.is_queued_for_deletion() or boss.hp <= 0:
+			continue
+		var bx: float = boss.global_position.x if is_inside_tree() else boss.position.x
+		var bz: float = boss.global_position.z if is_inside_tree() else boss.position.z
+		var by: float = boss.global_position.y if is_inside_tree() else boss.position.y
+		var hw: float = boss.half_width if ("half_width" in boss and boss.half_width > 0.0) else 1.55
+		var hz: float = boss.half_depth if ("half_depth" in boss and boss.half_depth > 0.0) else 1.0
+		var hy: float = boss.half_height if ("half_height" in boss and boss.half_height > 0.0) else 1.25
+
+		for blue in blue_mobs:
+			if not is_live(blue):
+				continue
+			var mx: float = blue.global_position.x if is_inside_tree() else blue.position.x
+			var mz: float = blue.global_position.z if is_inside_tree() else blue.position.z
+			var my: float = blue.global_position.y if is_inside_tree() else blue.position.y
+			if abs(mx - bx) <= (hw + 0.22) and abs(mz - bz) <= (hz + 0.22) and abs(my - by) <= (hy + 0.35):
+				on_mob_hit_boss(blue, boss)
+				if not is_instance_valid(boss) or boss.is_queued_for_deletion() or boss.hp <= 0:
+					break
+
 func _resolve_mob_clashes() -> void:
 	for blue in blue_mobs:
 		if not is_live(blue):
@@ -1054,7 +1356,7 @@ func _resolve_pylon_contacts() -> void:
 				on_mob_hit_pylon(blue, pylon)
 
 func _resolve_giant_contacts() -> void:
-	if not is_instance_valid(giant_enemy):
+	if not is_instance_valid(giant_enemy) or not giant_enemy.visible:
 		return
 	var gx = giant_enemy.global_position.x
 	var gz = giant_enemy.global_position.z
@@ -1093,28 +1395,43 @@ func _resolve_obstacle_contacts() -> void:
 func _evaluate_game_state() -> void:
 	# Check Defeat condition first
 	var defeat_triggered: bool = false
-	if is_instance_valid(giant_enemy) and giant_enemy.global_position.z >= 9.0:
+	if not survival_mode and is_instance_valid(giant_enemy) and giant_enemy.visible and giant_enemy.global_position.z >= 9.0:
 		defeat_triggered = true
-	else:
+	if not defeat_triggered:
+		for boss in active_bosses:
+			if is_instance_valid(boss) and not boss.is_queued_for_deletion() and boss.hp > 0:
+				var bz: float = boss.global_position.z if is_inside_tree() else boss.position.z
+				if bz >= 9.0:
+					defeat_triggered = true
+					break
+	if not defeat_triggered:
 		for pylon in active_pylons:
 			if is_instance_valid(pylon) and pylon.global_position.z >= 9.0:
 				defeat_triggered = true
 				break
-		if not defeat_triggered:
-			for red in red_mobs:
-				if is_live(red) and red.global_position.z >= 9.0:
-					defeat_triggered = true
-					break
+	if not defeat_triggered:
+		for red in red_mobs:
+			if is_live(red) and red.global_position.z >= 9.0:
+				defeat_triggered = true
+				break
 
 	if defeat_triggered:
 		state = GameState.DEFEAT
+		best_survival_time = maxf(best_survival_time, time_elapsed)
 		if defeat_banner != null:
+			if survival_mode:
+				defeat_banner.text = "DEFEAT!\nSURVIVED: %s | BOSSES DEFEATED: %d | KILLS: %d\nPRESS R OR SPACE TO RETRY | ESC: MENU" % [_format_survival_time(time_elapsed), bosses_defeated, soldiers_defeated]
+			else:
+				defeat_banner.text = "DEFEAT!\nPRESS R TO RESTART OR ESC FOR MENU"
 			defeat_banner.visible = true
 		if victory_banner != null:
 			victory_banner.visible = false
 		return
 
-	# Check Stage Clear or Campaign Victory second (only when not in Defeat)
+	if survival_mode:
+		return
+
+	# Check Stage Clear or Campaign Victory second (only in legacy stage mode when not in Defeat)
 	if is_instance_valid(giant_enemy) and giant_enemy.hp <= 0:
 		if giant_enemy.visible:
 			var g_pos: Vector3 = giant_enemy.global_position if is_inside_tree() else giant_enemy.position
@@ -1166,6 +1483,13 @@ func _cleanup_out_of_bounds_mobs() -> void:
 				surviving_red.append(mob)
 	red_mobs = surviving_red
 
+	if dynamic_gates_enabled:
+		for gate in get_all_gates():
+			if is_instance_valid(gate) and not gate.is_queued_for_deletion():
+				var gz: float = gate.global_position.z if is_inside_tree() else gate.position.z
+				if gz >= GATE_DESPAWN_Z:
+					gate.queue_free()
+
 func is_live(mob: Variant) -> bool:
 	if mob == null or not is_instance_valid(mob):
 		return false
@@ -1208,6 +1532,10 @@ func cleanup_stage_entities() -> void:
 		if is_instance_valid(obs) and not obs.is_queued_for_deletion():
 			obs.queue_free()
 	active_obstacles.clear()
+	for boss in active_bosses:
+		if is_instance_valid(boss) and not boss.is_queued_for_deletion():
+			boss.queue_free()
+	active_bosses.clear()
 	for fx in active_destruction_fx:
 		if is_instance_valid(fx) and not fx.is_queued_for_deletion():
 			fx.queue_free()
@@ -1216,6 +1544,12 @@ func cleanup_stage_entities() -> void:
 		if is_instance_valid(surge) and not surge.is_queued_for_deletion():
 			surge.queue_free()
 	active_surge_units.clear()
+
+	if gates_container != null:
+		for child in gates_container.get_children():
+			if is_instance_valid(child) and child.is_in_group("dynamic_gates"):
+				if not child.is_queued_for_deletion():
+					child.queue_free()
 
 	if is_instance_valid(giant_enemy):
 		giant_enemy.is_shielded = false
@@ -1231,16 +1565,56 @@ func cleanup_stage_entities() -> void:
 		for obs in get_tree().get_nodes_in_group("obstacles"):
 			if is_instance_valid(obs) and not obs.is_queued_for_deletion():
 				obs.queue_free()
+		for boss in get_tree().get_nodes_in_group("bosses"):
+			if is_instance_valid(boss) and not boss.is_queued_for_deletion():
+				boss.queue_free()
+		for dyn_g in get_tree().get_nodes_in_group("dynamic_gates"):
+			if is_instance_valid(dyn_g) and not dyn_g.is_queued_for_deletion():
+				dyn_g.queue_free()
 		for surge in get_tree().get_nodes_in_group("surge_units"):
 			if is_instance_valid(surge) and not surge.is_queued_for_deletion():
 				surge.queue_free()
 
+func init_survival_phase() -> void:
+	survival_mode = true
+	dynamic_gates_enabled = true
+	current_stage_index = 0
+	highway_min_z = -32.0
+	state = GameState.PLAYING
+	current_lock_act = 1
+	shield_locks_enabled = false
+	cleanup_stage_entities()
+	_ensure_baseline_gates(true)
+	if is_instance_valid(giant_enemy):
+		giant_enemy.reset(1200)
+		giant_enemy.visible = false
+	_reset_cannons_and_power()
+	red_spawn_timer = 0.0
+	soldier_spawn_timer = 0.0
+	gate_spawn_timer = 0.0
+	next_gate_spawn_interval = 3.0
+	boss_spawn_timer = 0.0
+	next_boss_spawn_interval = 7.5
+	next_soldier_spawn_interval = SOLDIER_BASE_INTERVAL
+	time_elapsed = 0.0
+	bosses_defeated = 0
+	soldiers_defeated = 0
+	if is_instance_valid(victory_banner):
+		victory_banner.visible = false
+	if is_instance_valid(defeat_banner):
+		defeat_banner.visible = false
+	spawn_boss(Vector3(2.2, 1.25, -20.0), BOSS_BASE_HP, BOSS_BASE_SPEED)
+	_update_cannon_status_ui()
+
 func init_stage(stage_idx: int) -> void:
+	survival_mode = false
+	dynamic_gates_enabled = false
 	current_stage_index = clampi(stage_idx, 0, STAGES.size() - 1)
 	state = GameState.PLAYING
 	current_lock_act = 1
 	shield_locks_enabled = true
 	cleanup_stage_entities()
+	_ensure_baseline_gates(false)
 	var cfg: Dictionary = STAGES[current_stage_index]
 	highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
 	current_wave = 1
@@ -1424,7 +1798,6 @@ func spawn_evolution_gate(arg1: Variant, arg2: Variant = 1, arg3: Variant = "") 
 func _spawn_evolution_gate(arg1: Variant, arg2: Variant = 1, arg3: Variant = "") -> MultiplierGate3DScript:
 	return spawn_evolution_gate(arg1, arg2, arg3)
 
-
 func spawn_stage_vault(stage_idx: int) -> Node3D:
 	var cfg: Dictionary = STAGES[clampi(stage_idx, 0, STAGES.size() - 1)]
 	var v_hp: int = int(cfg.get("vault_hp", 400))
@@ -1445,10 +1818,16 @@ func spawn_stage_vault(stage_idx: int) -> Node3D:
 	return spawn_vault_for_gate(gate, v_hp)
 
 func retry_stage() -> void:
-	init_stage(current_stage_index)
+	if survival_mode:
+		init_survival_phase()
+	else:
+		init_stage(current_stage_index)
 
 func reset_stage() -> void:
-	init_stage(current_stage_index)
+	if survival_mode:
+		init_survival_phase()
+	else:
+		init_stage(current_stage_index)
 
 func return_to_menu() -> void:
 	if _returning_to_menu:
@@ -1483,6 +1862,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				if get_viewport():
 					get_viewport().set_input_as_handled()
 			elif state == GameState.VICTORY:
-				init_stage(0)
+				if survival_mode:
+					init_survival_phase()
+				else:
+					init_stage(0)
 				if get_viewport():
 					get_viewport().set_input_as_handled()

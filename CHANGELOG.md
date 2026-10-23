@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Single Endless Survival Phase, Dynamic Scrolling/Despawning/Respawning `xN` & `+N` Gates, Gate-Crushing Bosses, & Time-Escalating Enemy Waves for Mob Control 3D (Spec `003-endless-survival-dynamic-gates`):
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Added `init_survival_phase()` (invoked by default in `_ready()`) launching into a continuous Single Endless Survival Phase (`survival_mode = true`, `dynamic_gates_enabled = true`) with no static highway roadblocks, live HUD survival telemetry (`"SURVIVAL TIME: MM:SS | BOSSES: B | KILLS: K"`), and uninterrupted gameplay (`state == GameState.PLAYING`) when advancing Bosses are defeated.
+    - Added dynamic scrolling gate lifecycle (`GATE_SCROLL_SPEED = 1.8`, `GATE_DESPAWN_Z = 8.2`, `GATE_SPAWN_Z = -16.5`, `spawn_random_gate()`, `_ensure_baseline_gates()`): all active `xN` and `+N` blocks move forward (`+Z`), despawn when reaching the bottom of the screen (`Z >= 8.2`), and continuously respawn with randomized operations (`+2..+6`, `x2..x4`) and horizontal positions (`X in [-2.8, 2.8]`) in the upper highway.
+    - Added lane-sized advancing Bosses (`active_bosses`, `spawn_boss()`, `BOSS_BASE_SPEED = 2.6`, `BOSS_HALF_WIDTH = 1.55`) that march forward faster than scrolling gates and shatter/destroy any `xN` or `+N` gate they touch (`_resolve_boss_gate_destruction()`, `on_boss_destroy_gate()`) with a 12-shard 3D shatter burst (`_spawn_destruction_fx`).
+    - Added randomized, time-escalating Soldier and Boss spawners (`_step_survival_spawners()`, `get_soldier_max_burst()`, `get_max_concurrent_bosses()`, `get_scaled_boss_hp()`) that shrink spawn intervals and increase Soldier burst sizes (`2` up to `8`), concurrent Bosses (`1` up to `4`), Boss HP, and enemy march speeds as `time_elapsed` grows.
+    - Preserved full backward compatibility for `init_stage(stage_idx)` (`survival_mode = false`, `dynamic_gates_enabled = false`, `_ensure_baseline_gates(false)`) so legacy stage tests (`Scenarios 1–16`) run without regression.
+  - In `scripts/mob_control/MultiplierGate3D.gd` and `scripts/mob_control/GiantEnemy3D.gd`:
+    - Added `scroll_speed`, `move_enabled`, horizontal oscillation properties (`osc_enabled`, `osc_base_x`, `osc_amplitude`, `osc_speed`, `osc_time`), and `step_gate(delta)` in `MultiplierGate3D.gd`.
+    - Added `is_lane_boss`, dynamic width-scaled 3D Mech geometry (`_built_width`), `"BOSS: %d"` label formatting, and marching stride bob animation in `GiantEnemy3D.gd`.
+  - Enhanced automated test suites:
+    - Added Scenario 17 (`test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction`) to `tests/test_mob_control.gd` (748 total passing assertions) and `test_endless_survival_dynamic_gates_and_boss_destruction_contract` to `tests/test_mob_control.py` (112 total passing tests).
 - Implemented Extended Multi-Wave Stages, 3-Type Highway Obstacles, Articulated 3D Enemy/Mech Silhouettes, & Zero-HP Destruction FX for Mob Control 3D (Spec `002-extended-waves-obstacles-enemies`):
   - In `scripts/mob_control/MobControlMain.gd`:
     - Added automatic `init_stage(0)` invocation in `_ready()` so Stage 1 initializes with full multi-thousand HP (`1200`), active wave obstacles, and shield locks immediately upon launching from the Arcade Hub menu.
