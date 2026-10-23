@@ -3,8 +3,8 @@ extends Node3D
 
 ## Main scene controller for Mob Control 3D.
 ## Manages 4-phase deterministic stepping: Motion -> Contact Resolution -> State Evaluation -> Bounds Cleanup.
-## Enforces MAX_MOBS = 300 cap, multi-cannon squad (up to 5 cannons), xN gate bullet power scaling,
-## swarm attrition, modifier gate replication, and Giant Boss assault.
+## Enforces MAX_MOBS = 300 cap, multi-cannon squad (up to 5 cannons), gate-charge bullet power scaling,
+## multi-wave highway obstacle progression, 3D shatter/explosion animations, and Giant Boss assault.
 
 signal return_to_menu_requested
 
@@ -13,6 +13,7 @@ enum GameState { PLAYING, STAGE_CLEAR, VICTORY, DEFEAT }
 const STAGES: Array[Dictionary] = [
 	{
 		"stage": 1,
+		"waves": 3,
 		"base_hp": 1200,
 		"highway_depth": -32.0,
 		"highway_min_z": -32.0,
@@ -27,6 +28,7 @@ const STAGES: Array[Dictionary] = [
 	},
 	{
 		"stage": 2,
+		"waves": 4,
 		"base_hp": 2500,
 		"highway_depth": -36.0,
 		"highway_min_z": -36.0,
@@ -41,6 +43,7 @@ const STAGES: Array[Dictionary] = [
 	},
 	{
 		"stage": 3,
+		"waves": 4,
 		"base_hp": 4500,
 		"highway_depth": -42.0,
 		"highway_min_z": -42.0,
@@ -55,6 +58,7 @@ const STAGES: Array[Dictionary] = [
 	},
 	{
 		"stage": 4,
+		"waves": 5,
 		"base_hp": 7000,
 		"highway_depth": -46.0,
 		"highway_min_z": -46.0,
@@ -69,6 +73,7 @@ const STAGES: Array[Dictionary] = [
 	},
 	{
 		"stage": 5,
+		"waves": 5,
 		"base_hp": 10000,
 		"highway_depth": -52.0,
 		"highway_min_z": -52.0,
@@ -85,11 +90,15 @@ const STAGES: Array[Dictionary] = [
 
 const MAX_MOBS: int = 300
 const MAX_CANNONS: int = 5
+const GATE_CHARGE_THRESHOLD: int = 35
+const MAX_BULLET_POWER: int = 25
 const CANNON_SPACING_X: float = 1.15
 const CANNON_SLOT_OFFSETS: Array[float] = [0.0, -1.15, 1.15, -2.30, 2.30]
 const BLUE_SPEED: float = -9.0
 const RED_SPEED: float = 4.2
 const GIANT_SPEED: float = 1.0
+const GIANT_FORTIFIED_SPEED: float = 0.18
+const DESTRUCTION_FX_DURATION: float = 0.45
 const RED_SPAWN_START_TIME: float = 1.0
 const RED_SPAWN_INTERVAL: float = 1.0
 
@@ -111,8 +120,13 @@ var current_stage_index: int = 0:
 			highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
 
 var highway_min_z: float = -32.0
+var current_wave: int = 1
+var total_waves_in_stage: int = 3
+var gate_power_charge: int = 0
 var active_pylons: Array[Node3D] = []
 var active_vaults: Array[Node3D] = []
+var active_obstacles: Array[Node3D] = []
+var active_destruction_fx: Array[Node3D] = []
 var active_surge_units: Array = []
 var road_scroller_nodes: Array[Node3D] = []
 var current_lock_act: int = 1
@@ -139,6 +153,7 @@ const MultiplierGate3DScene = preload("res://scenes/mob_control/MultiplierGate3D
 var cannons: Array[Cannon3DScript] = []
 var bullet_power: int = 1
 var cannon_power_label_3d: Label3D = null
+var wave_status_label: Label = null
 
 var blue_mobs: Array[MobUnit3DScript] = []
 var red_mobs: Array[MobUnit3DScript] = []
@@ -156,21 +171,17 @@ func _ready() -> void:
 	_resolve_nodes()
 	_apply_high_res_viewport()
 	_setup_road_scroller()
-	if STAGES.size() > 0:
-		var cfg: Dictionary = STAGES[current_stage_index]
-		highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
 	if is_instance_valid(cannon) and not cannon.shoot_requested.is_connected(_on_cannon_shoot_requested):
 		cannon.shoot_requested.connect(_on_cannon_shoot_requested)
 	_ensure_cannons_initialized()
-	_update_cannon_squad_positions()
-	_update_cannon_status_ui()
-	if is_instance_valid(victory_banner):
-		victory_banner.visible = false
-	if is_instance_valid(defeat_banner):
-		defeat_banner.visible = false
+	init_stage(0)
 
 func _exit_tree() -> void:
 	_restore_retro_viewport()
+
+func _process(delta: float) -> void:
+	if state != GameState.PLAYING and not active_destruction_fx.is_empty():
+		_step_destruction_fx(delta)
 
 func _apply_high_res_viewport() -> void:
 	if is_inside_tree() and get_window() != null:
@@ -248,6 +259,23 @@ func _update_cannon_status_ui() -> void:
 		cannon_status_label = get_node_or_null("UI/CannonStatusLabel")
 	if cannon_status_label != null:
 		cannon_status_label.text = "CANNONS: %d/%d | BULLET POWER: %d" % [count, MAX_CANNONS, bullet_power]
+	var ui_layer: Node = get_node_or_null("UI")
+	if ui_layer != null:
+		if wave_status_label == null or not is_instance_valid(wave_status_label):
+			wave_status_label = ui_layer.get_node_or_null("WaveStatusLabel") as Label
+			if wave_status_label == null:
+				wave_status_label = Label.new()
+				wave_status_label.name = "WaveStatusLabel"
+				wave_status_label.anchors_preset = Control.PRESET_TOP_WIDE
+				wave_status_label.offset_top = 46.0
+				wave_status_label.offset_bottom = 76.0
+				wave_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				wave_status_label.add_theme_font_size_override("font_size", 20)
+				wave_status_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4, 0.95))
+				wave_status_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+				wave_status_label.add_theme_constant_override("outline_size", 4)
+				ui_layer.add_child(wave_status_label)
+		wave_status_label.text = "STAGE %d/%d | WAVE %d/%d" % [current_stage_index + 1, STAGES.size(), current_wave, total_waves_in_stage]
 	if cannon_power_label_3d == null or not is_instance_valid(cannon_power_label_3d):
 		cannon_power_label_3d = get_node_or_null("CannonPowerLabel3D") as Label3D
 		if cannon_power_label_3d == null:
@@ -272,6 +300,7 @@ func _reset_cannons_and_power() -> void:
 			extra.free()
 		cannons.remove_at(i)
 	bullet_power = 1
+	gate_power_charge = 0
 	if is_instance_valid(cannon):
 		cannon.reset()
 	_update_cannon_squad_positions()
@@ -281,8 +310,14 @@ func _on_bullet_hit_multiplier_gate(mult_value: int) -> void:
 	_ensure_cannons_initialized()
 	if cannons.size() < MAX_CANNONS:
 		_add_cannon()
-	else:
-		bullet_power += maxi(1, mult_value)
+	elif bullet_power < 6:
+		bullet_power = mini(MAX_BULLET_POWER, bullet_power + maxi(1, mult_value))
+		_update_cannon_status_ui()
+	elif bullet_power < MAX_BULLET_POWER:
+		gate_power_charge += 1
+		if gate_power_charge >= GATE_CHARGE_THRESHOLD:
+			gate_power_charge -= GATE_CHARGE_THRESHOLD
+			bullet_power = mini(MAX_BULLET_POWER, bullet_power + 1)
 		_update_cannon_status_ui()
 
 func _setup_road_scroller() -> void:
@@ -391,9 +426,13 @@ func step(delta: float) -> void:
 	for i in range(active_vaults.size() - 1, -1, -1):
 		if not is_instance_valid(active_vaults[i]):
 			active_vaults.remove_at(i)
+	for i in range(active_obstacles.size() - 1, -1, -1):
+		if not is_instance_valid(active_obstacles[i]) or active_obstacles[i].is_queued_for_deletion():
+			active_obstacles.remove_at(i)
 
 	# --- Phase 1: Motion & Spawner ---
 	_step_road_scroller(delta)
+	_step_destruction_fx(delta)
 
 	if is_instance_valid(cannon):
 		_update_cannon_squad_positions()
@@ -408,25 +447,41 @@ func step(delta: float) -> void:
 		if is_live(mob):
 			var spd: float = mob.speed if ("speed" in mob and mob.speed > 0.0) else RED_SPEED
 			mob.position.z += spd * delta
+			if mob.has_method("step_visuals"):
+				mob.step_visuals(delta)
 
 	if is_instance_valid(giant_enemy):
-		giant_enemy.position.z += GIANT_SPEED * delta
+		var g_spd: float = GIANT_FORTIFIED_SPEED if not active_obstacles.is_empty() else GIANT_SPEED
+		giant_enemy.position.z += g_spd * delta
+		if giant_enemy.has_method("step_visuals"):
+			giant_enemy.step_visuals(delta)
 
 	for pylon in active_pylons:
 		if is_instance_valid(pylon) and not pylon.is_queued_for_deletion():
 			var p_spd: float = pylon.speed if ("speed" in pylon and pylon.speed > 0.0) else GIANT_SPEED
 			pylon.position.z += p_spd * delta
+			if pylon.has_method("step_visuals"):
+				pylon.step_visuals(delta)
 
 	for vault in active_vaults:
 		if is_instance_valid(vault) and not vault.is_queued_for_deletion():
 			var v_spd: float = vault.speed if ("speed" in vault and vault.speed > 0.0) else 0.0
 			if v_spd > 0.0:
 				vault.position.z += v_spd * delta
+			if vault.has_method("step_visuals"):
+				vault.step_visuals(delta)
+
+	for obs in active_obstacles:
+		if is_instance_valid(obs) and not obs.is_queued_for_deletion():
+			if obs.has_method("step_obstacle"):
+				obs.step_obstacle(delta)
 
 	time_elapsed += delta
 	red_spawn_timer += delta
+	var cfg: Dictionary = get_current_stage_config()
+	var spawn_interval: float = float(cfg.get("red_spawn_interval", RED_SPAWN_INTERVAL))
 	while red_spawn_timer >= RED_SPAWN_START_TIME:
-		red_spawn_timer -= RED_SPAWN_INTERVAL
+		red_spawn_timer -= spawn_interval
 		_spawn_red_mob()
 
 	# --- Phase 2: Explicit Contact Resolution Pass ---
@@ -435,7 +490,9 @@ func step(delta: float) -> void:
 	_resolve_mob_clashes()
 	_resolve_pylon_contacts()
 	_resolve_giant_contacts()
+	_resolve_obstacle_contacts()
 	_check_shield_release()
+	_check_wave_progression()
 
 	# --- Phase 3: State Evaluation & Latch ---
 	_evaluate_game_state()
@@ -568,13 +625,79 @@ func flush_pending_spawns() -> void:
 	for item in queue_copy:
 		_instantiate_clone(item)
 
+func _spawn_destruction_fx(world_pos: Vector3, extent: Vector3 = Vector3(1.5, 1.5, 1.5), base_color: Color = Color(1.0, 0.65, 0.15)) -> Node3D:
+	var fx := Node3D.new()
+	fx.name = "DestructionFX_%d" % (active_destruction_fx.size() + 1)
+	fx.position = world_pos
+	fx.set_meta("elapsed", 0.0)
+	fx.set_meta("duration", DESTRUCTION_FX_DURATION)
+
+	var shard_mesh := BoxMesh.new()
+	shard_mesh.size = Vector3(0.28, 0.28, 0.28)
+
+	var shard_mat := StandardMaterial3D.new()
+	shard_mat.albedo_color = base_color
+	shard_mat.emission_enabled = true
+	shard_mat.emission = base_color * 1.4
+
+	var shard_count: int = 12
+	for i in range(shard_count):
+		var angle: float = (TAU / float(shard_count)) * float(i)
+		var ring_r: float = 0.25 + float(i % 3) * 0.2
+		var shard := MeshInstance3D.new()
+		shard.name = "Shard_%d" % i
+		shard.mesh = shard_mesh
+		shard.material_override = shard_mat
+		shard.position = Vector3(
+			cos(angle) * ring_r * maxf(0.4, extent.x * 0.35),
+			(float(i % 3) - 1.0) * 0.25,
+			sin(angle) * ring_r * maxf(0.4, extent.z * 0.35)
+		)
+		var spd_h: float = 3.2 + float(i % 4) * 1.1
+		var vel := Vector3(cos(angle) * spd_h, 3.8 + float(i % 3) * 1.2, sin(angle) * spd_h)
+		var ang_vel := Vector3(4.5 - float(i % 3) * 2.0, 6.0, 3.5 + float(i % 2) * 3.0)
+		shard.set_meta("vel", vel)
+		shard.set_meta("ang_vel", ang_vel)
+		fx.add_child(shard)
+
+	add_child(fx)
+	active_destruction_fx.append(fx)
+	return fx
+
+func _step_destruction_fx(delta: float) -> void:
+	for i in range(active_destruction_fx.size() - 1, -1, -1):
+		var fx: Node3D = active_destruction_fx[i]
+		if not is_instance_valid(fx) or fx.is_queued_for_deletion():
+			active_destruction_fx.remove_at(i)
+			continue
+		var elapsed: float = float(fx.get_meta("elapsed", 0.0)) + delta
+		var duration: float = maxf(0.05, float(fx.get_meta("duration", DESTRUCTION_FX_DURATION)))
+		fx.set_meta("elapsed", elapsed)
+		if elapsed >= duration:
+			active_destruction_fx.remove_at(i)
+			fx.queue_free()
+			continue
+		var scale_factor: float = clampf(1.0 - (elapsed / duration), 0.02, 1.0)
+		for child in fx.get_children():
+			if child is Node3D:
+				var c_node := child as Node3D
+				var vel: Vector3 = c_node.get_meta("vel", Vector3.UP)
+				var ang_vel: Vector3 = c_node.get_meta("ang_vel", Vector3.ONE)
+				c_node.position += vel * delta
+				vel.y -= 16.0 * delta
+				c_node.set_meta("vel", vel)
+				c_node.rotation += ang_vel * delta
+				c_node.scale = Vector3.ONE * scale_factor
+
 func on_mob_clash(blue: MobUnit3DScript, red: MobUnit3DScript) -> void:
 	if not is_live(blue) or not is_live(red):
 		return
 	var red_hp: int = maxi(1, red.power if "power" in red else 1)
 	var blue_pwr: int = maxi(1, blue.power if "power" in blue else 1)
+	var red_pos: Vector3 = red.global_position if is_inside_tree() else red.position
 	red.is_consumed = true
 	red.queue_free()
+	_spawn_destruction_fx(red_pos, Vector3(0.5, 0.6, 0.5), Color(0.95, 0.22, 0.22))
 	if blue_pwr > red_hp:
 		blue.power = blue_pwr - red_hp
 	else:
@@ -592,6 +715,8 @@ func on_mob_hit_pylon(blue: MobUnit3DScript, pylon: GiantEnemy3DScript) -> void:
 	if is_instance_valid(pylon):
 		pylon.take_damage(dmg)
 		if pylon.hp <= 0:
+			var p_pos: Vector3 = pylon.global_position if is_inside_tree() else pylon.position
+			_spawn_destruction_fx(p_pos, Vector3(3.0, 2.0, 1.5), Color(0.25, 0.85, 1.0))
 			if not pylon.is_queued_for_deletion():
 				pylon.queue_free()
 			var idx = active_pylons.find(pylon)
@@ -618,6 +743,8 @@ func on_mob_hit_vault(blue: MobUnit3DScript, vault: Node3D) -> void:
 func _destroy_vault(vault: Node3D) -> void:
 	if not is_instance_valid(vault):
 		return
+	var v_pos: Vector3 = vault.global_position if is_inside_tree() else vault.position
+	_spawn_destruction_fx(v_pos, Vector3(2.8, 2.0, 1.5), Color(0.85, 0.55, 1.0))
 	var gate = null
 	if "target_gate" in vault and is_instance_valid(vault.target_gate):
 		gate = vault.target_gate
@@ -653,6 +780,31 @@ func _destroy_vault(vault: Node3D) -> void:
 		active_vaults.remove_at(idx)
 	if not vault.is_queued_for_deletion():
 		vault.queue_free()
+
+func on_mob_hit_obstacle(blue: MobUnit3DScript, obstacle: Node3D) -> void:
+	if not is_live(blue) or not is_instance_valid(obstacle) or obstacle.is_queued_for_deletion():
+		return
+	var raw_pwr: int = maxi(1, blue.power if "power" in blue else 1)
+	var is_haz: bool = obstacle.has_method("is_hazard") and obstacle.is_hazard()
+	var dmg: int = maxi(1, int(ceil(float(raw_pwr) * 0.5))) if is_haz else raw_pwr
+	blue.is_consumed = true
+	blue.queue_free()
+
+	if obstacle.has_method("take_damage"):
+		obstacle.take_damage(dmg)
+	elif "hp" in obstacle:
+		obstacle.hp = maxi(0, obstacle.hp - dmg)
+
+	if "hp" in obstacle and obstacle.hp <= 0:
+		var o_pos: Vector3 = obstacle.global_position if is_inside_tree() else obstacle.position
+		var hw: float = obstacle.half_width if "half_width" in obstacle else 1.5
+		var fx_col := Color(0.95, 0.25, 0.25) if is_haz else Color(0.95, 0.65, 0.22)
+		_spawn_destruction_fx(o_pos, Vector3(hw * 2.0, 2.0, 1.5), fx_col)
+		var idx: int = active_obstacles.find(obstacle)
+		if idx != -1:
+			active_obstacles.remove_at(idx)
+		if not obstacle.is_queued_for_deletion():
+			obstacle.queue_free()
 
 func on_mob_hit_giant(blue: MobUnit3DScript, giant: GiantEnemy3DScript) -> void:
 	if not is_live(blue):
@@ -763,6 +915,8 @@ func _check_shield_release() -> void:
 		var p = active_pylons[i]
 		if not is_instance_valid(p) or p.is_queued_for_deletion() or ("hp" in p and p.hp <= 0):
 			if is_instance_valid(p) and not p.is_queued_for_deletion():
+				var p_pos: Vector3 = p.global_position if is_inside_tree() else p.position
+				_spawn_destruction_fx(p_pos, Vector3(3.0, 2.0, 1.5), Color(0.25, 0.85, 1.0))
 				p.queue_free()
 			active_pylons.remove_at(i)
 
@@ -776,6 +930,20 @@ func _check_shield_release() -> void:
 		giant_enemy.is_shielded = false
 		giant_enemy.is_invulnerable = false
 		giant_enemy._update_ui()
+
+func _check_wave_progression() -> void:
+	for i in range(active_obstacles.size() - 1, -1, -1):
+		var obs = active_obstacles[i]
+		if not is_instance_valid(obs) or obs.is_queued_for_deletion() or ("hp" in obs and obs.hp <= 0):
+			if is_instance_valid(obs) and not obs.is_queued_for_deletion():
+				obs.queue_free()
+			active_obstacles.remove_at(i)
+
+	if active_obstacles.is_empty() and current_wave < total_waves_in_stage:
+		if is_instance_valid(giant_enemy) and giant_enemy.hp > 0:
+			current_wave += 1
+			_spawn_wave_obstacles(current_stage_index, current_wave)
+			_update_cannon_status_ui()
 
 func is_base_shielded() -> bool:
 	return is_instance_valid(giant_enemy) and (giant_enemy.is_shielded or giant_enemy.is_invulnerable)
@@ -900,6 +1068,28 @@ func _resolve_giant_contacts() -> void:
 			   abs(blue.global_position.y - gy) <= (1.25 + 0.35):
 			on_mob_hit_giant(blue, giant_enemy)
 
+func _resolve_obstacle_contacts() -> void:
+	for i in range(active_obstacles.size() - 1, -1, -1):
+		var obs = active_obstacles[i]
+		if not is_instance_valid(obs) or obs.is_queued_for_deletion():
+			continue
+		var ox: float = obs.global_position.x
+		var oz: float = obs.global_position.z
+		var oy: float = obs.global_position.y
+		var hw: float = obs.half_width if ("half_width" in obs and obs.half_width > 0.0) else 1.5
+		var hz: float = obs.half_depth if ("half_depth" in obs and obs.half_depth > 0.0) else 0.75
+		var hy: float = obs.half_height if ("half_height" in obs and obs.half_height > 0.0) else 1.25
+
+		for blue in blue_mobs:
+			if not is_live(blue):
+				continue
+			if abs(blue.global_position.x - ox) <= (hw + 0.22) and \
+			   abs(blue.global_position.z - oz) <= (hz + 0.22) and \
+			   abs(blue.global_position.y - oy) <= (hy + 0.35):
+				on_mob_hit_obstacle(blue, obs)
+				if not is_instance_valid(obs) or obs.is_queued_for_deletion() or ("hp" in obs and obs.hp <= 0):
+					break
+
 func _evaluate_game_state() -> void:
 	# Check Defeat condition first
 	var defeat_triggered: bool = false
@@ -926,6 +1116,10 @@ func _evaluate_game_state() -> void:
 
 	# Check Stage Clear or Campaign Victory second (only when not in Defeat)
 	if is_instance_valid(giant_enemy) and giant_enemy.hp <= 0:
+		if giant_enemy.visible:
+			var g_pos: Vector3 = giant_enemy.global_position if is_inside_tree() else giant_enemy.position
+			_spawn_destruction_fx(g_pos, Vector3(6.5, 2.5, 2.0), Color(1.0, 0.78, 0.15))
+			giant_enemy.visible = false
 		if current_stage_index < STAGES.size() - 1:
 			state = GameState.STAGE_CLEAR
 			if victory_banner != null:
@@ -1010,6 +1204,14 @@ func cleanup_stage_entities() -> void:
 		if is_instance_valid(vault) and not vault.is_queued_for_deletion():
 			vault.queue_free()
 	active_vaults.clear()
+	for obs in active_obstacles:
+		if is_instance_valid(obs) and not obs.is_queued_for_deletion():
+			obs.queue_free()
+	active_obstacles.clear()
+	for fx in active_destruction_fx:
+		if is_instance_valid(fx) and not fx.is_queued_for_deletion():
+			fx.queue_free()
+	active_destruction_fx.clear()
 	for surge in active_surge_units:
 		if is_instance_valid(surge) and not surge.is_queued_for_deletion():
 			surge.queue_free()
@@ -1026,6 +1228,9 @@ func cleanup_stage_entities() -> void:
 		for vault in get_tree().get_nodes_in_group("vaults"):
 			if is_instance_valid(vault) and not vault.is_queued_for_deletion():
 				vault.queue_free()
+		for obs in get_tree().get_nodes_in_group("obstacles"):
+			if is_instance_valid(obs) and not obs.is_queued_for_deletion():
+				obs.queue_free()
 		for surge in get_tree().get_nodes_in_group("surge_units"):
 			if is_instance_valid(surge) and not surge.is_queued_for_deletion():
 				surge.queue_free()
@@ -1038,6 +1243,8 @@ func init_stage(stage_idx: int) -> void:
 	cleanup_stage_entities()
 	var cfg: Dictionary = STAGES[current_stage_index]
 	highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
+	current_wave = 1
+	total_waves_in_stage = maxi(1, int(cfg.get("waves", 3)))
 	if is_instance_valid(giant_enemy):
 		var base_hp: int = int(cfg.get("base_hp", 1200))
 		giant_enemy.reset(base_hp)
@@ -1049,6 +1256,7 @@ func init_stage(stage_idx: int) -> void:
 	if is_instance_valid(defeat_banner):
 		defeat_banner.visible = false
 	_spawn_stage_layout(current_stage_index)
+	_update_cannon_status_ui()
 
 func advance_stage() -> void:
 	if current_stage_index + 1 < STAGES.size():
@@ -1062,8 +1270,60 @@ func advance_stage() -> void:
 			defeat_banner.visible = false
 
 func _spawn_stage_layout(stage_idx: int) -> void:
+	_spawn_wave_obstacles(stage_idx, current_wave)
 	if auto_spawn_vaults:
 		spawn_stage_vault(stage_idx)
+
+func spawn_obstacle(mode: int, pos: Vector3, hp_val: int, half_w: float = 1.6, osc_amp: float = 0.0, osc_spd: float = 2.2) -> GiantEnemy3DScript:
+	var obs: GiantEnemy3DScript
+	if GiantEnemyScene != null:
+		obs = GiantEnemyScene.instantiate() as GiantEnemy3DScript
+	else:
+		obs = GiantEnemy3DScript.new()
+	obs.half_width = half_w
+	obs.half_depth = 0.70
+	obs.half_height = 1.25
+	obs.entity_mode = mode as GiantEnemy3DScript.EntityMode
+	obs.hp = maxi(1, hp_val)
+	obs.max_hp = maxi(1, hp_val)
+	obs.speed = 0.0
+	obs.is_invulnerable = false
+	obs.is_shielded = false
+	obs.position = pos
+	obs.osc_base_x = pos.x
+	if mode == GiantEnemy3DScript.EntityMode.MOVING_BLOCK or osc_amp > 0.0:
+		obs.osc_enabled = true
+		obs.osc_amplitude = osc_amp if osc_amp > 0.0 else 2.2
+		obs.osc_speed = osc_spd
+	obs.name = "Obstacle_%d_%d" % [current_wave, active_obstacles.size() + 1]
+	obs.add_to_group("obstacles")
+	add_child(obs)
+	active_obstacles.append(obs)
+	obs._build_entity_model()
+	obs._update_ui()
+	return obs
+
+func _spawn_wave_obstacles(stage_idx: int, wave_idx: int) -> void:
+	var base_obs_hp: int = 120 + stage_idx * 90 + (wave_idx - 1) * 60
+	var left_x: float = -2.6 if (wave_idx % 2 == 1) else 2.6
+	var right_x: float = -left_x
+	spawn_obstacle(GiantEnemy3DScript.EntityMode.WALL, Vector3(left_x, 1.25, -10.2), base_obs_hp, 1.45)
+	spawn_obstacle(GiantEnemy3DScript.EntityMode.HAZARD, Vector3(right_x, 1.25, -10.2), int(round(float(base_obs_hp) * 0.85)), 1.35)
+	spawn_obstacle(
+		GiantEnemy3DScript.EntityMode.MOVING_BLOCK,
+		Vector3(0.0, 1.25, -11.4),
+		int(round(float(base_obs_hp) * 1.15)),
+		1.45,
+		2.3,
+		2.1 + float(wave_idx) * 0.25
+	)
+	if wave_idx > 1 and state == GameState.PLAYING:
+		var raider_count: int = 2 + wave_idx
+		for i in range(raider_count):
+			var r_mob := _spawn_red_mob()
+			if r_mob != null:
+				var rx: float = -3.6 + (7.2 / float(maxi(1, raider_count - 1))) * float(i)
+				r_mob.position = Vector3(rx, 0.5, -18.0 - float(i % 2) * 0.6)
 
 func spawn_vault(arg1: Variant, arg2: Variant, target_gate: MultiplierGate3DScript = null) -> Node3D:
 	var pos: Vector3
@@ -1105,6 +1365,8 @@ func spawn_vault(arg1: Variant, arg2: Variant, target_gate: MultiplierGate3DScri
 
 	add_child(vault)
 	active_vaults.append(vault)
+	if vault.has_method("_build_entity_model"):
+		vault._build_entity_model()
 	if vault.has_method("_update_ui"):
 		vault._update_ui()
 	return vault

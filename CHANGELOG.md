@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Extended Multi-Wave Stages, 3-Type Highway Obstacles, Articulated 3D Enemy/Mech Silhouettes, & Zero-HP Destruction FX for Mob Control 3D (Spec `002-extended-waves-obstacles-enemies`):
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Added automatic `init_stage(0)` invocation in `_ready()` so Stage 1 initializes with full multi-thousand HP (`1200`), active wave obstacles, and shield locks immediately upon launching from the Arcade Hub menu.
+    - Added multi-wave stage progression (`"waves": 3..5` across `STAGES`, `current_wave`, `total_waves_in_stage`) with HUD `WaveStatusLabel` (`"STAGE X/5 | WAVE Y/Z"`), fortified Boss speed (`GIANT_FORTIFIED_SPEED = 0.18`) while wave obstacles remain active, and wave enemy raider squad reinforcement spawns.
+    - Added progressive gate-charge bullet power scaling (`GATE_CHARGE_THRESHOLD = 35`, `MAX_BULLET_POWER = 25`, `gate_power_charge`) so post-tier-6 bullet power upgrades require 35 `xN` gate hits per `+1` upgrade, preventing runaway DPS inflation and ensuring multi-minute stages.
+    - Added highway obstacle spawning (`spawn_obstacle()`, `_spawn_wave_obstacles()`, `active_obstacles`) and collision resolution (`_resolve_obstacle_contacts()`, `on_mob_hit_obstacle()`) with `2x` bullet power attrition against Spiked Hazard Barriers (`HAZARD`).
+    - Added deterministic 3D shatter/explosion burst FX (`_spawn_destruction_fx()`, `_step_destruction_fx()`, `active_destruction_fx`, `DESTRUCTION_FX_DURATION = 0.45`) spawning 12 outward-flying 3D debris fragments on `0 HP` for obstacles, vaults, pylons, red raiders, and the Giant Boss, and immediately hiding the defeated Giant Boss (`giant_enemy.visible = false`) on `0 HP`.
+  - In `scripts/mob_control/GiantEnemy3D.gd`:
+    - Extended `EntityMode` enum to `{ BASE, PYLON, WALL, MOVING_BLOCK, HAZARD }` with horizontal X oscillation (`step_obstacle(delta)`) clamped within `[-4.5, +4.5]` for `MOVING_BLOCK`, emissive hit-flash and micro-recoil (`hit_flash_timer`, `is_hit_flashing()`) on non-lethal damage, `visible = true` restoration in `reset()`, and multi-part 3D Mech/Spire/Bunker silhouette construction (`_build_entity_model()`, `get_visual_part_count()`).
+  - In `scripts/mob_control/MobUnit3D.gd`:
+    - Replaced plain red capsules with an articulated 7-part 3D Robot Raider rig (`_build_raider_model()`, `RaiderModel3D` with `Head`, `Visor`, `Torso`, `LeftArmPivot`, `RightArmPivot`, `LeftLegPivot`, `RightLegPivot`) and deterministic counter-phase walking stride animation (`step_visuals(delta)`), while keeping Blue player units as glowing energy spheres/bolts.
+  - Enhanced automated test suites:
+    - Added Scenario 16 (`test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx`) to `tests/test_mob_control.gd` (663 total passing assertions) and `test_extended_waves_obstacles_3d_forms_and_destruction_contract` to `tests/test_mob_control.py` (111 total passing tests).
 - Implemented Multi-Cannon Squad Progression (Max 5 Cannons) & `xN` Gate Bullet Power Scaling for Mob Control 3D:
   - In `scripts/mob_control/MobControlMain.gd` and `scripts/mob_control/Cannon3D.gd`:
     - Added multi-cannon squad progression (`MAX_CANNONS = 5`, `CANNON_SLOT_OFFSETS = [0.0, -1.15, 1.15, -2.30, +2.30]`): when a Blue bullet touches an active `xN` (`operation == "x"`) gate (`x2`, `x3`, `x4`, `x5`), the game both duplicates the passing bullet on the highway and spawns `+1` additional `Cannon3D` into the side-by-side player squad up to the maximum limit of 5 cannons.
