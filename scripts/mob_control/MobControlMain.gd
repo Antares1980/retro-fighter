@@ -89,6 +89,16 @@ const GIANT_SPEED: float = 1.0
 const RED_SPAWN_START_TIME: float = 1.0
 const RED_SPAWN_INTERVAL: float = 1.0
 
+const HI_RES_SIZE: Vector2i = Vector2i(1152, 672)
+const RETRO_RES_SIZE: Vector2i = Vector2i(384, 224)
+const CLONE_SPACING_X: float = 0.55
+const CLONE_SPACING_Z: float = 0.50
+const MAX_ROW_WIDTH: int = 5
+const HIGHWAY_HALF_WIDTH: float = 4.5
+const ROAD_SCROLL_SPEED: float = 8.0
+const ROAD_SCROLL_MIN_Z: float = -52.0
+const ROAD_SCROLL_MAX_Z: float = 12.0
+
 var current_stage_index: int = 0:
 	set(value):
 		current_stage_index = clampi(value, 0, STAGES.size() - 1)
@@ -100,6 +110,7 @@ var highway_min_z: float = -32.0
 var active_pylons: Array[Node3D] = []
 var active_vaults: Array[Node3D] = []
 var active_surge_units: Array = []
+var road_scroller_nodes: Array[Node3D] = []
 var current_lock_act: int = 1
 var shield_locks_enabled: bool = false
 var auto_spawn_vaults: bool = false
@@ -126,12 +137,15 @@ var red_mobs: Array[MobUnit3DScript] = []
 @onready var cannon: Cannon3DScript = $Cannon if has_node("Cannon") else null
 @onready var giant_enemy: GiantEnemy3DScript = $GiantEnemy if has_node("GiantEnemy") else null
 @onready var gates_container: Node3D = $Gates if has_node("Gates") else null
+@onready var road_decor: Node3D = $RoadDecor if has_node("RoadDecor") else null
 @onready var victory_banner: Control = $UI/VictoryBanner if has_node("UI/VictoryBanner") else null
 @onready var defeat_banner: Control = $UI/DefeatBanner if has_node("UI/DefeatBanner") else null
 @onready var controls_hint: Label = $UI/ControlsHint if has_node("UI/ControlsHint") else null
 
 func _ready() -> void:
 	_resolve_nodes()
+	_apply_high_res_viewport()
+	_setup_road_scroller()
 	if STAGES.size() > 0:
 		var cfg: Dictionary = STAGES[current_stage_index]
 		highway_min_z = float(cfg.get("highway_min_z", cfg.get("highway_depth", -32.0)))
@@ -142,6 +156,87 @@ func _ready() -> void:
 	if is_instance_valid(defeat_banner):
 		defeat_banner.visible = false
 
+func _exit_tree() -> void:
+	_restore_retro_viewport()
+
+func _apply_high_res_viewport() -> void:
+	if is_inside_tree() and get_window() != null:
+		var win: Window = get_window()
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+		win.content_scale_size = HI_RES_SIZE
+	if is_inside_tree() and get_viewport() != null:
+		get_viewport().msaa_3d = Viewport.MSAA_4X
+
+func _restore_retro_viewport() -> void:
+	if is_inside_tree() and get_window() != null:
+		var win: Window = get_window()
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+		win.content_scale_size = RETRO_RES_SIZE
+	if is_inside_tree() and get_viewport() != null:
+		get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+
+func _setup_road_scroller() -> void:
+	if road_decor == null:
+		road_decor = get_node_or_null("RoadDecor")
+		if road_decor == null:
+			road_decor = Node3D.new()
+			road_decor.name = "RoadDecor"
+			add_child(road_decor)
+
+	for marker in road_scroller_nodes:
+		if is_instance_valid(marker):
+			marker.free()
+	road_scroller_nodes.clear()
+
+	var center_mat := StandardMaterial3D.new()
+	center_mat.albedo_color = Color(0.95, 0.82, 0.18, 1.0)
+	center_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	var edge_mat := StandardMaterial3D.new()
+	edge_mat.albedo_color = Color(0.85, 0.88, 0.92, 1.0)
+	edge_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	var dash_mesh := BoxMesh.new()
+	dash_mesh.size = Vector3(0.18, 0.02, 1.6)
+
+	var pillar_mat := StandardMaterial3D.new()
+	pillar_mat.albedo_color = Color(0.25, 0.55, 0.95, 1.0)
+
+	var pillar_mesh := BoxMesh.new()
+	pillar_mesh.size = Vector3(0.35, 1.2, 0.35)
+
+	var z_cursor: float = ROAD_SCROLL_MIN_Z
+	while z_cursor < ROAD_SCROLL_MAX_Z:
+		for lane_x in [0.0, -5.2, 5.2]:
+			var dash := MeshInstance3D.new()
+			dash.mesh = dash_mesh
+			dash.material_override = center_mat if is_zero_approx(lane_x) else edge_mat
+			dash.position = Vector3(lane_x, 0.01, z_cursor)
+			road_decor.add_child(dash)
+			road_scroller_nodes.append(dash)
+		z_cursor += 4.0
+
+	var p_cursor: float = ROAD_SCROLL_MIN_Z
+	while p_cursor < ROAD_SCROLL_MAX_Z:
+		for side_x in [-6.4, 6.4]:
+			var pillar := MeshInstance3D.new()
+			pillar.mesh = pillar_mesh
+			pillar.material_override = pillar_mat
+			pillar.position = Vector3(side_x, 0.6, p_cursor)
+			road_decor.add_child(pillar)
+			road_scroller_nodes.append(pillar)
+		p_cursor += 6.0
+
+func _step_road_scroller(delta: float) -> void:
+	if road_scroller_nodes.is_empty():
+		_setup_road_scroller()
+	var span: float = ROAD_SCROLL_MAX_Z - ROAD_SCROLL_MIN_Z
+	for marker in road_scroller_nodes:
+		if is_instance_valid(marker):
+			marker.position.z += ROAD_SCROLL_SPEED * delta
+			while marker.position.z > ROAD_SCROLL_MAX_Z:
+				marker.position.z -= span
+
 func _resolve_nodes() -> void:
 	if cannon == null:
 		cannon = get_node_or_null("Cannon")
@@ -149,6 +244,8 @@ func _resolve_nodes() -> void:
 		giant_enemy = get_node_or_null("GiantEnemy")
 	if gates_container == null:
 		gates_container = get_node_or_null("Gates")
+	if road_decor == null:
+		road_decor = get_node_or_null("RoadDecor")
 	if victory_banner == null:
 		victory_banner = get_node_or_null("UI/VictoryBanner")
 	if defeat_banner == null:
@@ -183,6 +280,8 @@ func step(delta: float) -> void:
 			active_vaults.remove_at(i)
 
 	# --- Phase 1: Motion & Spawner ---
+	_step_road_scroller(delta)
+
 	if is_instance_valid(cannon):
 		cannon.step(delta)
 
@@ -256,6 +355,20 @@ func _spawn_red_mob() -> MobUnit3DScript:
 	red_mobs.append(mob)
 	return mob
 
+func _compute_gate_formation_slot(idx: int, total_group: int, anchor_x: float, base_z: float) -> Vector3:
+	@warning_ignore("integer_division")
+	var row_idx: int = idx / MAX_ROW_WIDTH
+	var col_idx: int = idx % MAX_ROW_WIDTH
+	var units_in_row: int = mini(MAX_ROW_WIDTH, total_group - row_idx * MAX_ROW_WIDTH)
+	var half_span: float = float(units_in_row - 1) * CLONE_SPACING_X * 0.5
+	var min_center: float = -HIGHWAY_HALF_WIDTH + half_span
+	var max_center: float = HIGHWAY_HALF_WIDTH - half_span
+	var row_center_x: float = clampf(anchor_x, min_center, max_center) if min_center <= max_center else 0.0
+	var offset_x: float = (float(col_idx) - float(units_in_row - 1) * 0.5) * CLONE_SPACING_X
+	var slot_x: float = clampf(row_center_x + offset_x, -HIGHWAY_HALF_WIDTH, HIGHWAY_HALF_WIDTH)
+	var slot_z: float = base_z - float(row_idx) * CLONE_SPACING_Z
+	return Vector3(slot_x, 0.5, slot_z)
+
 func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> void:
 	if mob != null and "team" in mob and mob.team == "red":
 		on_red_mob_entered_gate(mob, gate)
@@ -279,9 +392,15 @@ func on_mob_entered_gate(mob: MobUnit3DScript, gate: MultiplierGate3DScript) -> 
 	if allowed <= 0:
 		return
 
+	var anchor_x: float = mob.global_position.x if is_inside_tree() else mob.position.x
+	var base_z: float = (gate.global_position.z if is_inside_tree() else gate.position.z) - 0.6
+	var total_group: int = 1 + allowed
+	var parent_slot: Vector3 = _compute_gate_formation_slot(0, total_group, anchor_x, base_z)
+	mob.position.x = parent_slot.x
+
 	pending_spawns += allowed
 	for i in range(allowed):
-		var clone_pos = Vector3(mob.global_position.x, 0.5, gate.global_position.z - 0.6)
+		var clone_pos: Vector3 = _compute_gate_formation_slot(i + 1, total_group, anchor_x, base_z)
 		var clone_data = {
 			"pos": clone_pos,
 			"passed_gates": mob.passed_gates.duplicate()
@@ -932,6 +1051,7 @@ func return_to_menu() -> void:
 	if _returning_to_menu:
 		return
 	_returning_to_menu = true
+	_restore_retro_viewport()
 	return_to_menu_requested.emit()
 	if is_inside_tree() and get_tree() != null and (get_tree().current_scene == self or get_tree().current_scene == null):
 		get_tree().change_scene_to_file("res://scenes/Menu.tscn")

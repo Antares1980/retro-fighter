@@ -69,6 +69,7 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('node name="Camera3D" type="Camera3D"', self.main_scene)
         self.assertIn('node name="DirectionalLight3D" type="DirectionalLight3D"', self.main_scene)
         self.assertIn('node name="Road" type="MeshInstance3D"', self.main_scene)
+        self.assertIn('node name="RoadDecor" type="Node3D"', self.main_scene)
         self.assertIn('node name="Cannon"', self.main_scene)
         self.assertIn('node name="GiantEnemy"', self.main_scene)
         self.assertIn('node name="Gates" type="Node3D"', self.main_scene)
@@ -85,6 +86,7 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('node name="GiantEnemy3D" type="Area3D"', self.giant_scene)
         self.assertIn('size = Vector3(9.5, 2.5, 2.5)', self.giant_scene)
         self.assertIn('node name="Label3D" type="Label3D"', self.giant_scene)
+        self.assertIn('texture_filter = 5', self.giant_scene)
         self.assertIn('node name="HealthBar"', self.giant_scene)
 
     def test_cannon_scene_structure(self):
@@ -95,6 +97,7 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('node name="MultiplierGate3D" type="Area3D"', self.gate_scene)
         self.assertIn('size = Vector3(4, 2, 0.6)', self.gate_scene)
         self.assertIn('node name="Label3D" type="Label3D"', self.gate_scene)
+        self.assertIn('texture_filter = 5', self.gate_scene)
 
     def test_mob_scene_structure(self):
         self.assertIn('node name="MobUnit3D" type="Area3D"', self.mob_scene)
@@ -313,6 +316,35 @@ class TestMobControl(unittest.TestCase):
 
         self.assertIn("test_scenario_13_progression_loop_input_latching_and_pacing", self.test_gd)
 
+    def test_visual_gate_spread_hires_viewport_and_road_scroller_contract(self):
+        """Spec 001 / GWT 1-4: Verify lateral gate spread, dynamic 1152x672 viewport switch/restore, and forward highway scroller."""
+        # US1: Lateral & Staggered Gate Duplication Spread
+        self.assertIn("const CLONE_SPACING_X: float = 0.55", self.main_script)
+        self.assertIn("const CLONE_SPACING_Z: float = 0.50", self.main_script)
+        self.assertIn("const MAX_ROW_WIDTH: int = 5", self.main_script)
+        self.assertIn("const HIGHWAY_HALF_WIDTH: float = 4.5", self.main_script)
+        self.assertIn("func _compute_gate_formation_slot(", self.main_script)
+
+        # US2: Dynamic High-Resolution 3D Viewport & Retro 2D Restoration
+        self.assertIn("const HI_RES_SIZE: Vector2i = Vector2i(1152, 672)", self.main_script)
+        self.assertIn("const RETRO_RES_SIZE: Vector2i = Vector2i(384, 224)", self.main_script)
+        self.assertIn("func _apply_high_res_viewport()", self.main_script)
+        self.assertIn("func _restore_retro_viewport()", self.main_script)
+        self.assertIn("func _exit_tree()", self.main_script)
+        self.assertIn("Window.CONTENT_SCALE_MODE_CANVAS_ITEMS", self.main_script)
+        self.assertIn("Window.CONTENT_SCALE_MODE_VIEWPORT", self.main_script)
+        self.assertIn("Viewport.MSAA_4X", self.main_script)
+        self.assertIn("Viewport.MSAA_DISABLED", self.main_script)
+
+        # US3: Deterministic Forward Highway Scroller
+        self.assertIn("const ROAD_SCROLL_SPEED: float = 8.0", self.main_script)
+        self.assertIn("const ROAD_SCROLL_MIN_Z: float = -52.0", self.main_script)
+        self.assertIn("const ROAD_SCROLL_MAX_Z: float = 12.0", self.main_script)
+        self.assertIn("func _setup_road_scroller()", self.main_script)
+        self.assertIn("func _step_road_scroller(", self.main_script)
+        self.assertIn("var road_scroller_nodes: Array[Node3D]", self.main_script)
+
+        self.assertIn("test_scenario_14_gate_spread_hires_viewport_and_road_scroller", self.test_gd)
+
 if __name__ == "__main__":
     unittest.main()
-
