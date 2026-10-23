@@ -52,6 +52,7 @@ class TestClaudeWorkflows(unittest.TestCase):
             content = f.read()
 
         self.assertIn("name: PR Review", content)
+        self.assertIn("branches: [ main ]", content)
         self.assertIn("types: [opened, synchronize, ready_for_review, reopened]", content)
         self.assertIn("workflow_dispatch:", content)
         self.assertIn("pr_number:", content)
@@ -70,7 +71,9 @@ class TestClaudeWorkflows(unittest.TestCase):
 
         # Zero-token merge_only fast-path & [skip pr-review] handling
         self.assertIn('"[skip pr-review]"', content)
+        self.assertIn('if [[ "$LAST_VERDICT_BODY" == *"PR Review Verdict: **APPROVED**"* ]]; then', content)
         self.assertIn('echo "merge_only=true" >> "$GITHUB_OUTPUT"', content)
+        self.assertIn('ALREADY_ESCALATED=', content)
         self.assertIn(
             "if: steps.meta.outputs.skip != 'true' && steps.meta.outputs.merge_only != 'true'",
             content,
@@ -111,10 +114,12 @@ class TestClaudeWorkflows(unittest.TestCase):
             'gh run list -R "$REPO" --commit "$CURRENT_SHA" -w "$CI_WORKFLOW_NAME" -L 1',
             content,
         )
+        self.assertIn('elif [[ "$BUILD_STATUS" == completed:* ]]; then', content)
         self.assertIn('CI_PASSED="true"', content)
         self.assertIn('if [ "$CI_PASSED" != "true" ]; then', content)
         self.assertIn('gh pr merge "$PR_NUMBER" -R "$REPO" --squash --delete-branch', content)
         self.assertIn("id: close_story_step", content)
+        self.assertIn("sub_issues?per_page=100", content)
 
     def test_pr_review_prompt_exists_and_defines_schema_and_verification_rules(self):
         self.assertTrue(
