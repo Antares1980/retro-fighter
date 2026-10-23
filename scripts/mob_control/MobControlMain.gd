@@ -98,6 +98,8 @@ const BASELINE_GATES: Array[Dictionary] = [
 
 const MAX_MOBS: int = 300
 const MAX_CANNONS: int = 5
+const CANNON_UNLOCK_CHARGE_THRESHOLD: int = 12
+const GATE_POWER_EARLY_THRESHOLD: int = 10
 const GATE_CHARGE_THRESHOLD: int = 35
 const MAX_BULLET_POWER: int = 25
 const CANNON_SPACING_X: float = 1.15
@@ -109,17 +111,18 @@ const GIANT_FORTIFIED_SPEED: float = 0.18
 const DESTRUCTION_FX_DURATION: float = 0.45
 const RED_SPAWN_START_TIME: float = 1.0
 const RED_SPAWN_INTERVAL: float = 1.0
+const SURVIVAL_CLEANUP_BOUND_Z: float = -24.5
 
 const GATE_SCROLL_SPEED: float = 1.8
 const GATE_DESPAWN_Z: float = 8.2
 const GATE_SPAWN_Z: float = -16.5
 const BOSS_BASE_SPEED: float = 2.6
-const BOSS_BASE_HP: int = 140
+const BOSS_BASE_HP: int = 160
 const BOSS_HALF_WIDTH: float = 1.55
-const SOLDIER_BASE_INTERVAL: float = 1.4
-const SOLDIER_MIN_INTERVAL: float = 0.28
-const BOSS_BASE_INTERVAL: float = 14.0
-const BOSS_MIN_INTERVAL: float = 5.5
+const SOLDIER_BASE_INTERVAL: float = 1.1
+const SOLDIER_MIN_INTERVAL: float = 0.18
+const BOSS_BASE_INTERVAL: float = 9.5
+const BOSS_MIN_INTERVAL: float = 3.2
 
 const HI_RES_SIZE: Vector2i = Vector2i(1152, 672)
 const RETRO_RES_SIZE: Vector2i = Vector2i(384, 224)
@@ -351,6 +354,27 @@ func _reset_cannons_and_power() -> void:
 
 func _on_bullet_hit_multiplier_gate(mult_value: int) -> void:
 	_ensure_cannons_initialized()
+	if survival_mode:
+		if cannons.size() < MAX_CANNONS:
+			gate_power_charge += 1
+			if gate_power_charge >= CANNON_UNLOCK_CHARGE_THRESHOLD:
+				gate_power_charge -= CANNON_UNLOCK_CHARGE_THRESHOLD
+				_add_cannon()
+			else:
+				_update_cannon_status_ui()
+		elif bullet_power < 6:
+			gate_power_charge += maxi(1, mult_value)
+			while gate_power_charge >= GATE_POWER_EARLY_THRESHOLD and bullet_power < 6:
+				gate_power_charge -= GATE_POWER_EARLY_THRESHOLD
+				bullet_power = mini(6, bullet_power + 1)
+			_update_cannon_status_ui()
+		elif bullet_power < MAX_BULLET_POWER:
+			gate_power_charge += 1
+			if gate_power_charge >= GATE_CHARGE_THRESHOLD:
+				gate_power_charge -= GATE_CHARGE_THRESHOLD
+				bullet_power = mini(MAX_BULLET_POWER, bullet_power + 1)
+			_update_cannon_status_ui()
+		return
 	if cannons.size() < MAX_CANNONS:
 		_add_cannon()
 	elif bullet_power < 6:
@@ -565,21 +589,30 @@ func step(delta: float) -> void:
 	# --- Phase 4: Bounds Cleanup ---
 	_cleanup_out_of_bounds_mobs()
 
+func get_soldier_min_burst(elapsed: float) -> int:
+	return mini(12, 2 + int(floor(maxf(0.0, elapsed) / 12.0)))
+
 func get_soldier_max_burst(elapsed: float) -> int:
-	return mini(8, 2 + int(floor(maxf(0.0, elapsed) / 18.0)))
+	return mini(24, 3 + int(floor(maxf(0.0, elapsed) / 6.0)))
+
+func get_scaled_soldier_power(elapsed: float) -> int:
+	return mini(15, 1 + int(floor(maxf(0.0, elapsed) / 15.0)))
 
 func get_max_concurrent_bosses(elapsed: float) -> int:
 	var t: float = maxf(0.0, elapsed)
-	if t >= 120.0:
-		return 4
+	if t >= 100.0:
+		return 5
 	elif t >= 70.0:
+		return 4
+	elif t >= 45.0:
 		return 3
-	elif t >= 30.0:
+	elif t >= 20.0:
 		return 2
 	return 1
 
 func get_scaled_boss_hp(elapsed: float) -> int:
-	return BOSS_BASE_HP + int(floor(maxf(0.0, elapsed) * 4.5))
+	var t: float = maxf(0.0, elapsed)
+	return BOSS_BASE_HP + int(floor(t * 8.0 + t * t * 0.12))
 
 func _step_survival_spawners(delta: float) -> void:
 	# 1. Dynamic Gate Stream Spawner
@@ -600,42 +633,72 @@ func _step_survival_spawners(delta: float) -> void:
 	if soldier_trigger >= next_soldier_spawn_interval:
 		red_spawn_timer = 0.0
 		soldier_spawn_timer = 0.0
-		var base_soldier_int: float = maxf(SOLDIER_MIN_INTERVAL, SOLDIER_BASE_INTERVAL - (time_elapsed / 60.0) * 0.55)
-		next_soldier_spawn_interval = base_soldier_int * rng.randf_range(0.8, 1.2)
-		var max_burst: int = get_soldier_max_burst(time_elapsed)
-		var burst_count: int = rng.randi_range(1, max_burst)
+		var base_soldier_int: float = maxf(SOLDIER_MIN_INTERVAL, SOLDIER_BASE_INTERVAL - (time_elapsed / 45.0) * 0.65)
+		next_soldier_spawn_interval = base_soldier_int * rng.randf_range(0.8, 1.15)
+		var min_burst: int = get_soldier_min_burst(time_elapsed)
+		var max_burst: int = maxi(min_burst, get_soldier_max_burst(time_elapsed))
+		var burst_count: int = rng.randi_range(min_burst, max_burst)
+		var s_pwr: int = get_scaled_soldier_power(time_elapsed)
 		for i in range(burst_count):
-			var r_mob := _spawn_red_mob()
+			var r_mob := _spawn_red_mob(s_pwr)
 			if r_mob != null:
-				r_mob.position = Vector3(rng.randf_range(-3.8, 3.8), 0.5, -22.0 - float(i) * 0.55)
+				@warning_ignore("integer_division")
+				var row_idx: int = i / 4
+				r_mob.position = Vector3(rng.randf_range(-3.8, 3.8), 0.5, -22.0 - float(row_idx) * 0.65 - rng.randf_range(0.0, 0.25))
 				if time_elapsed > 2.0:
-					r_mob.speed = RED_SPEED * clampf(1.0 + time_elapsed / 180.0, 1.0, 1.65)
+					r_mob.speed = RED_SPEED * clampf(1.0 + time_elapsed / 120.0, 1.0, 1.85)
 
 	# 3. Time-Escalating Boss Spawner
 	boss_spawn_timer += delta
 	var max_bosses: int = get_max_concurrent_bosses(time_elapsed)
 	if boss_spawn_timer >= next_boss_spawn_interval:
 		boss_spawn_timer = 0.0
-		var base_boss_int: float = maxf(BOSS_MIN_INTERVAL, BOSS_BASE_INTERVAL - (time_elapsed / 30.0) * 2.0)
+		var base_boss_int: float = maxf(BOSS_MIN_INTERVAL, BOSS_BASE_INTERVAL - (time_elapsed / 25.0) * 2.2)
 		next_boss_spawn_interval = base_boss_int * rng.randf_range(0.85, 1.15)
 		if active_bosses.size() < max_bosses:
 			var b_hp: int = get_scaled_boss_hp(time_elapsed)
-			var b_spd: float = clampf(BOSS_BASE_SPEED + (time_elapsed / 120.0) * 0.8, BOSS_BASE_SPEED, 3.8)
-			spawn_boss(Vector3(rng.randf_range(-2.8, 2.8), 1.25, -23.5), b_hp, b_spd)
+			var b_spd: float = clampf(BOSS_BASE_SPEED + (time_elapsed / 90.0) * 0.9, BOSS_BASE_SPEED, 4.0)
+			var primary_x: float = rng.randf_range(-2.8, 2.8)
+			spawn_boss(Vector3(primary_x, 1.25, -23.5), b_hp, b_spd)
+			if time_elapsed >= 60.0 and active_bosses.size() < max_bosses and rng.randf() < 0.35:
+				var secondary_x: float = clampf(-primary_x + rng.randf_range(-0.6, 0.6), -2.8, 2.8)
+				spawn_boss(Vector3(secondary_x, 1.25, -24.8), b_hp, b_spd)
 
 	_update_cannon_status_ui()
+
+func _recycle_furthest_blue_mob() -> bool:
+	var best_idx: int = -1
+	var min_z: float = INF
+	for i in range(blue_mobs.size()):
+		var mob: MobUnit3DScript = blue_mobs[i]
+		if is_live(mob):
+			var mz: float = mob.global_position.z if is_inside_tree() else mob.position.z
+			if mz < min_z:
+				min_z = mz
+				best_idx = i
+	if best_idx != -1:
+		var victim: MobUnit3DScript = blue_mobs[best_idx]
+		blue_mobs.remove_at(best_idx)
+		victim.is_consumed = true
+		if not victim.is_queued_for_deletion():
+			victim.queue_free()
+		return true
+	return false
 
 func _on_cannon_shoot_requested(muzzle_pos: Vector3) -> void:
 	if state != GameState.PLAYING:
 		return
 	_ensure_cannons_initialized()
 	if cannons.is_empty():
-		if get_live_blue_mobs_count() + pending_spawns < MAX_MOBS:
-			_spawn_blue_mob(muzzle_pos, {}, bullet_power)
+		if get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS:
+			if not survival_mode or not _recycle_furthest_blue_mob():
+				return
+		_spawn_blue_mob(muzzle_pos, {}, bullet_power)
 		return
 	for i in range(cannons.size()):
 		if get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS:
-			break
+			if not survival_mode or not _recycle_furthest_blue_mob():
+				break
 		var c: Cannon3DScript = cannons[i]
 		if not is_instance_valid(c):
 			continue
@@ -652,13 +715,13 @@ func _spawn_blue_mob(pos: Vector3, p_passed_gates: Dictionary = {}, p_power: int
 	blue_mobs.append(mob)
 	return mob
 
-func _spawn_red_mob() -> MobUnit3DScript:
+func _spawn_red_mob(p_power: int = 1) -> MobUnit3DScript:
 	if state != GameState.PLAYING:
 		return null
 	var mob = MobUnitScene.instantiate() as MobUnit3DScript
 	var x = rng.randf_range(-3.8, 3.8)
 	mob.position = Vector3(x, 0.5, -22.0)
-	mob.setup("red", 1)
+	mob.setup("red", maxi(1, p_power))
 	add_child(mob)
 	red_mobs.append(mob)
 	return mob
@@ -1461,6 +1524,8 @@ func get_highway_min_z() -> float:
 	return highway_min_z
 
 func get_cleanup_bound_z() -> float:
+	if survival_mode:
+		return SURVIVAL_CLEANUP_BOUND_Z
 	return highway_min_z - 3.0
 
 func _cleanup_out_of_bounds_mobs() -> void:
@@ -1589,6 +1654,10 @@ func init_survival_phase() -> void:
 		giant_enemy.reset(1200)
 		giant_enemy.visible = false
 	_reset_cannons_and_power()
+	if is_instance_valid(cannon):
+		cannon.auto_fire = true
+	if is_instance_valid(controls_hint):
+		controls_hint.text = "A/D or ARROWS: STEER | ESC: MENU"
 	red_spawn_timer = 0.0
 	soldier_spawn_timer = 0.0
 	gate_spawn_timer = 0.0
@@ -1623,6 +1692,8 @@ func init_stage(stage_idx: int) -> void:
 		var base_hp: int = int(cfg.get("base_hp", 1200))
 		giant_enemy.reset(base_hp)
 	_reset_cannons_and_power()
+	if is_instance_valid(cannon):
+		cannon.auto_fire = false
 	red_spawn_timer = 0.0
 	time_elapsed = 0.0
 	if is_instance_valid(victory_banner):

@@ -80,7 +80,7 @@ class TestMobControl(unittest.TestCase):
         self.assertIn('VictoryBanner', self.main_scene)
         self.assertIn('DefeatBanner', self.main_scene)
         self.assertIn('ControlsHint', self.main_scene)
-        self.assertIn('A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU', self.main_scene)
+        self.assertIn('A/D or ARROWS: STEER | ESC: MENU', self.main_scene)
 
     def test_giant_scene_structure(self):
         self.assertIn('node name="GiantEnemy3D" type="Area3D"', self.giant_scene)
@@ -118,6 +118,7 @@ class TestMobControl(unittest.TestCase):
 
         self.assertIn('class_name Cannon3D', self.cannon_script)
         self.assertIn('var move_input: float', self.cannon_script)
+        self.assertIn('var auto_fire: bool = true', self.cannon_script)
         self.assertIn('var fire_held: bool', self.cannon_script)
         self.assertIn('const FIRE_INTERVAL: float = 0.14', self.cannon_script)
         self.assertIn('signal shoot_requested', self.cannon_script)
@@ -433,15 +434,30 @@ class TestMobControl(unittest.TestCase):
         self.assertIn("func on_mob_hit_boss(", self.main_script)
 
         # US4: Randomized & Time-Escalating Soldier and Boss Spawners
-        self.assertIn("const SOLDIER_BASE_INTERVAL: float = 1.4", self.main_script)
-        self.assertIn("const SOLDIER_MIN_INTERVAL: float = 0.28", self.main_script)
-        self.assertIn("const BOSS_BASE_INTERVAL: float = 14.0", self.main_script)
-        self.assertIn("const BOSS_MIN_INTERVAL: float = 5.5", self.main_script)
+        self.assertIn("const SOLDIER_BASE_INTERVAL: float = 1.1", self.main_script)
+        self.assertIn("const SOLDIER_MIN_INTERVAL: float = 0.18", self.main_script)
+        self.assertIn("const BOSS_BASE_INTERVAL: float = 9.5", self.main_script)
+        self.assertIn("const BOSS_MIN_INTERVAL: float = 3.2", self.main_script)
         self.assertIn("func _step_survival_spawners(delta: float)", self.main_script)
+        self.assertIn("func get_soldier_min_burst(", self.main_script)
         self.assertIn("func get_soldier_max_burst(", self.main_script)
+        self.assertIn("func get_scaled_soldier_power(", self.main_script)
         self.assertIn("func get_max_concurrent_bosses(", self.main_script)
         self.assertIn("func get_scaled_boss_hp(", self.main_script)
         self.assertIn("test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction", self.test_gd)
+
+    def test_auto_fire_downrange_recycling_and_aggressive_horde_escalation_contract(self):
+        """Spec 004 / GWT 1-5: Verify always-on auto_fire, downrange recycling at MAX_MOBS, Z<-24.5 despawn, paced cannon unlocks, and aggressive horde escalation."""
+        self.assertIn("var auto_fire: bool = true", self.cannon_script)
+        self.assertIn("var effective_fire: bool = auto_fire or manual_fire", self.cannon_script)
+        self.assertIn("const SURVIVAL_CLEANUP_BOUND_Z: float = -24.5", self.main_script)
+        self.assertIn("const CANNON_UNLOCK_CHARGE_THRESHOLD: int = 12", self.main_script)
+        self.assertIn("const GATE_POWER_EARLY_THRESHOLD: int = 10", self.main_script)
+        self.assertIn("func _recycle_furthest_blue_mob() -> bool", self.main_script)
+        self.assertIn("func get_soldier_min_burst(elapsed: float) -> int", self.main_script)
+        self.assertIn("func get_soldier_max_burst(elapsed: float) -> int", self.main_script)
+        self.assertIn("func get_scaled_soldier_power(elapsed: float) -> int", self.main_script)
+        self.assertIn("test_scenario_18_auto_fire_downrange_recycling_and_aggressive_horde_escalation", self.test_gd)
 
 if __name__ == "__main__":
     unittest.main()

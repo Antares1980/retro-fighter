@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Always-On Auto-Fire Cannons, Uninterrupted Muzzle Volleys at `MAX_MOBS = 300`, Paced Survival Cannon/Power Unlocks, & Aggressive Time-Escalating Enemy Horde for Mob Control 3D (Spec `004-auto-fire-horde-escalation`):
+  - In `scripts/mob_control/Cannon3D.gd` and `scenes/mob_control/MobControlMain.tscn`:
+    - Added `@export var auto_fire: bool = true` so player cannons fire automatically and continuously every `FIRE_INTERVAL = 0.14s` during `GameState.PLAYING` without requiring `SPACE` or `J` manual fire input, while preserving manual fire cadence (`auto_fire = false`) for legacy stage mode tests.
+    - Updated `UI/ControlsHint` text to `"A/D or ARROWS: STEER | ESC: MENU"`.
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Added tighter upper-highway despawn bound `SURVIVAL_CLEANUP_BOUND_Z = -24.5` in `get_cleanup_bound_z()` when `survival_mode == true` so downrange blue bullets that miss enemies despawn immediately past the spawn zone instead of occupying `MAX_MOBS = 300` slots down to `Z = -35.0`.
+    - Added `_recycle_furthest_blue_mob()` invoked in `_on_cannon_shoot_requested()` when `survival_mode == true` and `get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS`, recycling the furthest-downrange live blue bullet (lowest `Z`) so cannon muzzle volleys never pause or jam when multiplied bullets saturate the highway.
+    - Added aggressive time-escalating Soldier & Boss horde curves:
+      - `get_soldier_min_burst(elapsed)` (`clampi(2 + int(floor(t / 12.0)), 2, 12)`) and `get_soldier_max_burst(elapsed)` (`clampi(3 + int(floor(t / 6.0)), 3, 24)`) with shortened spawn intervals (`SOLDIER_BASE_INTERVAL = 1.1`, `SOLDIER_MIN_INTERVAL = 0.18`).
+      - `get_scaled_soldier_power(elapsed)` (`clampi(1 + int(floor(t / 15.0)), 1, 15)`) so spawned Red Raiders scale in HP/power over survival time and require multiple points of blue bullet power in `on_mob_clash()`.
+      - Faster Boss spawn cadence (`BOSS_BASE_INTERVAL = 9.5`, `BOSS_MIN_INTERVAL = 3.2`), up to `5` concurrent Bosses (`get_max_concurrent_bosses` scaling `1 -> 2 -> 3 -> 4 -> 5` at `0s / 20s / 45s / 70s / 100s`), quadratic Boss HP scaling (`get_scaled_boss_hp`: `160 + floor(8t + 0.12t^2)`), and secondary dual-lane Boss spawns after `t >= 60s`.
+    - Added paced Survival Mode squad upgrade thresholds (`CANNON_UNLOCK_CHARGE_THRESHOLD = 12` `xN` gate hits per additional cannon `1 -> 5`, and `GATE_POWER_EARLY_THRESHOLD = 10` charge per early bullet power tier `1 -> 6`) in `_on_bullet_hit_multiplier_gate()`.
+  - Enhanced automated test suites:
+    - Added Scenario 18 (`test_scenario_18_auto_fire_downrange_recycling_and_aggressive_horde_escalation`) to `tests/test_mob_control.gd` (800 total passing Mob Control assertions) and `test_auto_fire_downrange_recycling_and_aggressive_horde_escalation_contract` to `tests/test_mob_control.py` (113 total passing Python tests).
 - Implemented Single Endless Survival Phase, Dynamic Scrolling/Despawning/Respawning `xN` & `+N` Gates, Gate-Crushing Bosses, & Time-Escalating Enemy Waves for Mob Control 3D (Spec `003-endless-survival-dynamic-gates`):
   - In `scripts/mob_control/MobControlMain.gd`:
     - Added `init_survival_phase()` (invoked by default in `_ready()`) launching into a continuous Single Endless Survival Phase (`survival_mode = true`, `dynamic_gates_enabled = true`) with no static highway roadblocks, live HUD survival telemetry (`"SURVIVAL TIME: MM:SS | BOSSES: B | KILLS: K"`), and uninterrupted gameplay (`state == GameState.PLAYING`) when advancing Bosses are defeated.
