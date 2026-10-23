@@ -28,6 +28,8 @@ shadow_enabled = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, -9)
 mesh = SubResource("BoxMesh_road")
 
+[node name="RoadDecor" type="Node3D" parent="."]
+
 [node name="Cannon" parent="." instance=ExtResource("2_cannon")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 9)
 
@@ -69,12 +71,15 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -150.0
-offset_top = -40.0
-offset_right = 150.0
-offset_bottom = 40.0
+offset_left = -360.0
+offset_top = -70.0
+offset_right = 360.0
+offset_bottom = 70.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.9)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 32
 text = "VICTORY!
 PRESS R TO RESTART OR ESC FOR MENU"
 horizontal_alignment = 1
@@ -87,12 +92,15 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -150.0
-offset_top = -40.0
-offset_right = 150.0
-offset_bottom = 40.0
+offset_left = -360.0
+offset_top = -70.0
+offset_right = 360.0
+offset_bottom = 70.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.9)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 32
 text = "DEFEAT!
 PRESS R TO RESTART OR ESC FOR MENU"
 horizontal_alignment = 1
@@ -104,17 +112,16 @@ anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -180.0
-offset_top = -18.0
-offset_right = 180.0
-offset_bottom = -4.0
+offset_left = -480.0
+offset_top = -42.0
+offset_right = 480.0
+offset_bottom = -10.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_colors/font_color = Color(1, 1, 1, 0.75)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
-theme_override_constants/outline_size = 2
-theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 22
 text = "A/D or ARROWS: STEER | HOLD J or SPACE: FIRE | ESC: MENU"
 horizontal_alignment = 1
 vertical_alignment = 1
-

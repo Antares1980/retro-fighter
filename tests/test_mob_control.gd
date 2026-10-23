@@ -83,6 +83,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_11_three_act_base_shield_lock_state_machine()
 	test_scenario_12_vault_destruction_and_evolution_gates()
 	test_scenario_13_progression_loop_input_latching_and_pacing()
+	test_scenario_14_gate_spread_hires_viewport_and_road_scroller()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -245,10 +246,12 @@ func test_scenario_3_modifier_gate_replication_and_giant_ui() -> void:
 	assert_equal(main.pending_spawns, 0, "pending_spawns is 0 after flush")
 	assert_equal(main.get_live_blue_mobs_count(), 3, "Total live blue mobs in corridor is 3 (1 entering + 2 clones)")
 
-	# Check clone positions and passed_gates inheritance
+	# Check lateral formation spread and passed_gates inheritance
 	for mob in main.blue_mobs:
-		assert_equal(mob.position.x, -2.5, "Clone X inherits parent X (-2.5)")
-		assert_true(mob.passed_gates.has("gate_left_1"), "Clone inherits passed_gates")
+		assert_true(mob.position.x >= -4.5 and mob.position.x <= 4.5, "Mob X stays within highway bounds [-4.5, 4.5]")
+		assert_true(mob.passed_gates.has("gate_left_1"), "Mob inherits passed_gates")
+	assert_true(abs(main.blue_mobs[0].position.x - main.blue_mobs[1].position.x) >= 0.45, "Slot 0 and Slot 1 are laterally separated")
+	assert_true(abs(main.blue_mobs[1].position.x - main.blue_mobs[2].position.x) >= 0.45, "Slot 1 and Slot 2 are laterally separated")
 
 	# Advance the 3 mobs into Giant Boss Base at Z = -15.0
 	for mob in main.blue_mobs:
@@ -1626,8 +1629,125 @@ func test_scenario_13_progression_loop_input_latching_and_pacing() -> void:
 		active_tree.root.remove_child(main)
 	main.free()
 
+func test_scenario_14_gate_spread_hires_viewport_and_road_scroller() -> void:
+	print("\nScenario 14: Visual Gate Duplication Spread, High-Res 3D Viewport, & Forward Highway Scroller (Spec 001 / GWT 1-4)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
 
+	# =========================================================================
+	# PART 1: GWT 1 - Visual Side-by-Side Duplication on x2 and +2 Gates
+	# =========================================================================
+	main.init_stage(0)
+	main.cleanup_all_mobs()
 
+	var gate_x2 = main.gates_container.get_node("gate_right_1")
+	assert_true(gate_x2 != null, "GWT 1: gate_right_1 (x2) exists")
+	assert_equal(gate_x2.operation, "x", "GWT 1: gate_right_1 operation is x")
+	assert_equal(gate_x2.value, 2, "GWT 1: gate_right_1 value is 2")
 
+	var _mob_x2 = main._spawn_blue_mob(Vector3(2.5, 0.5, -1.9))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
 
+	assert_equal(main.get_live_blue_mobs_count(), 2, "GWT 1: x2 gate produces 2 total Blue Mobs (1 original + 1 clone)")
+	if main.blue_mobs.size() == 2:
+		var b0 = main.blue_mobs[0]
+		var b1 = main.blue_mobs[1]
+		var sep_x: float = abs(b0.position.x - b1.position.x)
+		assert_true(sep_x >= 0.45, "GWT 1: x2 gate Blue Mobs separated horizontally by >= 0.45 (got %.3f)" % sep_x)
+		assert_true(b0.position.x >= -4.5 and b0.position.x <= 4.5, "GWT 1: b0.x clamped in [-4.5, 4.5]")
+		assert_true(b1.position.x >= -4.5 and b1.position.x <= 4.5, "GWT 1: b1.x clamped in [-4.5, 4.5]")
 
+	# Now test +2 gate (gate_left_1)
+	main.cleanup_all_mobs()
+	var _mob_plus2 = main._spawn_blue_mob(Vector3(-2.5, 0.5, -1.9))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+
+	assert_equal(main.get_live_blue_mobs_count(), 3, "GWT 1: +2 gate produces 3 total Blue Mobs (1 original + 2 clones)")
+	for i in range(main.blue_mobs.size()):
+		var mi = main.blue_mobs[i]
+		assert_true(mi.position.x >= -4.5 and mi.position.x <= 4.5, "GWT 1: +2 mob %d within [-4.5, 4.5]" % i)
+		for j in range(i + 1, main.blue_mobs.size()):
+			var mj = main.blue_mobs[j]
+			var dist_xz: float = Vector2(mi.position.x - mj.position.x, mi.position.z - mj.position.z).length()
+			assert_true(dist_xz >= 0.45, "GWT 1: +2 gate mobs %d and %d have distinct (X, Z) coordinates" % [i, j])
+
+	# =========================================================================
+	# PART 2: GWT 2 - Boundary-Safe Lateral Spread Near Highway Edges (+5 Gate)
+	# =========================================================================
+	main.cleanup_all_mobs()
+	var gate_plus5 = main.gates_container.get_node("gate_right_2")
+	assert_true(gate_plus5 != null, "GWT 2: gate_right_2 (+5) exists")
+	assert_equal(gate_plus5.operation, "+", "GWT 2: gate_right_2 operation is +")
+	assert_equal(gate_plus5.value, 5, "GWT 2: gate_right_2 value is 5")
+
+	var _edge_mob = main._spawn_blue_mob(Vector3(4.4, 0.5, -7.9))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+
+	assert_equal(main.get_live_blue_mobs_count(), 6, "GWT 2: +5 gate produces 6 total Blue Mobs")
+	for i in range(main.blue_mobs.size()):
+		var mi = main.blue_mobs[i]
+		assert_true(mi.position.x >= -4.5 and mi.position.x <= 4.5, "GWT 2: Edge +5 mob %d X (%.3f) strictly within [-4.5, 4.5]" % [i, mi.position.x])
+		for j in range(i + 1, main.blue_mobs.size()):
+			var mj = main.blue_mobs[j]
+			var dist_xz: float = Vector2(mi.position.x - mj.position.x, mi.position.z - mj.position.z).length()
+			assert_true(dist_xz > 0.05, "GWT 2: Edge +5 mobs %d and %d do not share exact same (X, Z)" % [i, j])
+
+	# =========================================================================
+	# PART 3: GWT 3 - Dynamic High-Res 3D Viewport Activation & Retro Restoration
+	# =========================================================================
+	if active_tree != null and main.get_window() != null and main.get_viewport() != null:
+		main._apply_high_res_viewport()
+		assert_equal(main.get_window().content_scale_size, Vector2i(1152, 672), "GWT 3: High-res Window content_scale_size is (1152, 672)")
+		assert_equal(main.get_window().content_scale_mode, Window.CONTENT_SCALE_MODE_CANVAS_ITEMS, "GWT 3: High-res Window content_scale_mode is CANVAS_ITEMS")
+		assert_equal(main.get_viewport().msaa_3d, Viewport.MSAA_4X, "GWT 3: High-res Viewport msaa_3d is MSAA_4X")
+
+		main._restore_retro_viewport()
+		assert_equal(main.get_window().content_scale_size, Vector2i(384, 224), "GWT 3: Restored Window content_scale_size is (384, 224)")
+		assert_equal(main.get_window().content_scale_mode, Window.CONTENT_SCALE_MODE_VIEWPORT, "GWT 3: Restored Window content_scale_mode is VIEWPORT")
+		assert_equal(main.get_viewport().msaa_3d, Viewport.MSAA_DISABLED, "GWT 3: Restored Viewport msaa_3d is MSAA_DISABLED")
+
+		# Re-apply high-res to verify return_to_menu() restores retro viewport
+		main._apply_high_res_viewport()
+		assert_equal(main.get_window().content_scale_size, Vector2i(1152, 672), "GWT 3: Re-applied 1152x672 before return_to_menu()")
+
+	# =========================================================================
+	# PART 4: GWT 4 - Continuous Forward Highway Scrolling & Halt on Terminal States
+	# =========================================================================
+	main.cleanup_all_mobs()
+	main.state = MobControlMainScript.GameState.PLAYING
+	assert_true(main.road_scroller_nodes.size() > 0, "GWT 4: road_scroller_nodes populated")
+
+	var sample_marker: Node3D = main.road_scroller_nodes[0]
+	sample_marker.position.z = -10.0
+	var dt: float = 1.0 / 60.0
+	main.step(dt)
+	var expected_z: float = -10.0 + MobControlMainScript.ROAD_SCROLL_SPEED * dt
+	assert_equal(sample_marker.position.z, expected_z, "GWT 4: Road marker advances by +ROAD_SCROLL_SPEED * delta during PLAYING")
+
+	# Test modular wrap-around when exceeding Z > 12.0
+	sample_marker.position.z = 11.95
+	main.step(dt)
+	assert_true(sample_marker.position.z <= -51.8 and sample_marker.position.z >= -52.0, "GWT 4: Marker exceeding Z > 12.0 wraps seamlessly back to far highway bound (-52.0)")
+
+	# Test halt on STAGE_CLEAR, VICTORY, and DEFEAT
+	var z_before_halt: float = sample_marker.position.z
+	for terminal_state in [MobControlMainScript.GameState.STAGE_CLEAR, MobControlMainScript.GameState.VICTORY, MobControlMainScript.GameState.DEFEAT]:
+		main.state = terminal_state
+		main.step(dt)
+		assert_equal(sample_marker.position.z, z_before_halt, "GWT 4: Road scroller does not move while state == %d" % terminal_state)
+
+	# Verify return_to_menu() restores retro viewport
+	main.return_to_menu()
+	if active_tree != null and main.get_window() != null:
+		assert_equal(main.get_window().content_scale_size, Vector2i(384, 224), "GWT 3: return_to_menu() restored (384, 224) viewport")
+		assert_equal(main.get_window().content_scale_mode, Window.CONTENT_SCALE_MODE_VIEWPORT, "GWT 3: return_to_menu() restored VIEWPORT stretch mode")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented Mob Control 3D Visual Gate Duplication Spread, Dynamic High-Resolution 3D Viewport, & Forward Highway Scroller (Spec `001-mob-control-spread-scroll`):
+  - In `scripts/mob_control/MobControlMain.gd`:
+    - Implemented deterministic lateral and staggered-row formation spreading (`_compute_gate_formation_slot`, `CLONE_SPACING_X = 0.55`, `CLONE_SPACING_Z = 0.50`, `MAX_ROW_WIDTH = 5`) inside `on_mob_entered_gate()`, separating the passing parent Blue Mob and spawned clones into distinct `(X, Z)` positions clamped strictly within `[-4.5, +4.5]` so duplicated units from `x2`, `+2`, `x3`, and `+5` gates visibly fan out into a wider swarm (GWT 1, GWT 2).
+    - Implemented dynamic high-resolution 3D viewport scaling (`_apply_high_res_viewport()` in `_ready()` setting `Window.CONTENT_SCALE_MODE_CANVAS_ITEMS`, `Vector2i(1152, 672)`, and `Viewport.MSAA_4X`) and clean retro restoration (`_restore_retro_viewport()` in `return_to_menu()` and `_exit_tree()` restoring `Window.CONTENT_SCALE_MODE_VIEWPORT`, `Vector2i(384, 224)`, and `Viewport.MSAA_DISABLED`) (GWT 3).
+    - Implemented deterministic forward highway scrolling (`_setup_road_scroller()` and `_step_road_scroller(delta)` with `ROAD_SCROLL_SPEED = 8.0`) advancing center/lane dashed stripes and roadside marker pillars along `+Z` during `GameState.PLAYING`, wrapping modularly across `[-52.0, +12.0]`, and halting immediately on `STAGE_CLEAR`, `VICTORY`, and `DEFEAT` (GWT 4).
+  - In `scenes/mob_control/MobControlMain.tscn`, `scenes/mob_control/MultiplierGate3D.tscn`, and `scenes/mob_control/GiantEnemy3D.tscn`:
+    - Added `RoadDecor` container node, scaled `VictoryBanner`, `DefeatBanner`, and `ControlsHint` typography for `1152x672` canvas rendering, and enabled linear mipmap texture filtering (`texture_filter = 5`) on 3D overhead `Label3D` counters.
+  - Enhanced automated test suites:
+    - Updated Scenario 3 and added Scenario 14 (`test_scenario_14_gate_spread_hires_viewport_and_road_scroller`) in `tests/test_mob_control.gd` (549 total passing assertions) verifying GWT 1–4.
+    - Added `test_visual_gate_spread_hires_viewport_and_road_scroller_contract` to `tests/test_mob_control.py`.
 - Implemented Progression Loop, Input Latching, & Test Suite Migration for Mob Control 3D (Issue #47, Parent #43):
   - In `scripts/mob_control/MobControlMain.gd`:
     - Implemented event-driven fresh non-echo key-down input latching in `_unhandled_input(event: InputEvent)` for `KEY_SPACE`, `KEY_ENTER`, `KEY_KP_ENTER`, `KEY_R`, and `KEY_ESCAPE` / `ui_cancel`.
@@ -25,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Implemented Two-Way Evolution Gate mechanics (`is_evolution_gate`, `level`, `progress`, `setup_evolution(start_level)`, `feed_blue(amount)`, `sabotage_red(amount)`). Evolution gates start at +1 (floor: level >= 1, progress >= 0) and cap at +15. Passing Blue mobs add +1 progress per unit, upgrading the multiplier by +1 for every 30 blue units (GWT 4).
     - Added 1:1 Red mob sabotage: Red units passing through the gate decrease progress by 1 unit per red mob, dropping multiplier level down to minimum floor +1 without consuming or cloning the Red unit.
   - In `scripts/mob_control/MobControlMain.gd`:
-    - Implemented high-HP destructible Vault entities blockading high-yield multiplier gates (`x4` in Stages 1–2, `x5` in Stages 3–5) via `spawn_vault()`, `spawn_vault_for_gate()`, and `spawn_stage_vault()`.
+    - Implemented high-HP destructible Vault entities blockading high-yield multiplier gates (`x4` in Stages 1â€“2, `x5` in Stages 3â€“5) via `spawn_vault()`, `spawn_vault_for_gate()`, and `spawn_stage_vault()`.
     - Added `_resolve_vault_contacts()` in Phase 2 contact resolution: Blue mobs colliding with the Vault inflict 1 damage, are consumed, and generate 0 clones from the locked gate while Base HP remains undamaged (GWT 3).
     - When Vault HP drops to 0, `_destroy_vault()` shatters the blockade, removes the Vault from `active_vaults`, unlocks the blockaded gate (`is_locked = false`, `is_active() == true`), and passing Blue mobs multiply according to gate yield.
     - Added `get_all_gates()` collecting scene gates, dynamic stage gates, and vault-linked gates for unified contact resolution.
@@ -134,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Eliminates `stop()` on `MatchState.RESET`, enabling continuous playback across rounds and seamless loop continuity.
     - Excised unrequested pitch/volume slowdown tween (`_bgm_tween`, `_on_round_ended()`) to reduce regression surface area and decouple from SceneTree lifecycle.
   - Updated test suites:
-    - Updated `tests/test_audio_orchestrator.gd` validating Scenarios 1–5: Ogg Vorbis loop metadata contract (`loop = true`, `loop_offset = 0.0`), runtime loop wrap-around contract (L1), initial combat playback synchronization on first `IN_ROUND`, continuous uninterrupted playback across match state transitions (`ROUND_OVER` -> `RESET` -> `ROUND_INTRO` -> subsequent `IN_ROUND`), and headless out-of-tree safety.
+    - Updated `tests/test_audio_orchestrator.gd` validating Scenarios 1â€“5: Ogg Vorbis loop metadata contract (`loop = true`, `loop_offset = 0.0`), runtime loop wrap-around contract (L1), initial combat playback synchronization on first `IN_ROUND`, continuous uninterrupted playback across match state transitions (`ROUND_OVER` -> `RESET` -> `ROUND_INTRO` -> subsequent `IN_ROUND`), and headless out-of-tree safety.
     - Updated `tests/test_audio_pipeline.py` to assert `retro-fighter.ogg` audio properties and import metadata.
 
 - Implemented Match Lifecycle Script Orchestration & Automated Headless Verification (Issue #24):
@@ -208,21 +218,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `"RESET"`: deterministic neutral pose resetting all 12 limb nodes (`position = Vector2.ZERO`, `rotation = 0.0`).
     - `"idle"`: rhythmic breathing loop with subtle 2px torso bob and tie flutter (24 ticks, looping).
     - `"walk"` / `"walk_backward"`: forward/backward stepping stride swinging `LeadLeg` and `BackLeg` with arm counter-swings (16 ticks, looping).
-    - `"crouch"`: held low guard pose with visual height ≤32 px to match crouch hurtbox.
+    - `"crouch"`: held low guard pose with visual height â‰¤32 px to match crouch hurtbox.
     - `"jump_squat"`: preparatory compression squat (3 ticks).
     - `"jump"` / `"fall"`: held aerial tuck and descent poses.
-    - `"punch"`: 12 ticks total (startup 1–4, active 5–7 extending `LeadArm` +18 px forward into punch hitbox, recovery 8–12).
-    - `"kick"`: 19 ticks total (startup 1–7, active 8–11 extending `LeadLeg` into low kick zone, recovery 12–19).
-    - `"block"` / `"crouch_block"`: two-arm cross-guard posture adapting to standing or crouch-blocking (visual height ≤32 px).
-    - `"block_stun"` / `"crouch_block_stun"`: recoil/guard shudder holding last pose (8 ticks, visual height ≤32 px).
+    - `"punch"`: 12 ticks total (startup 1â€“4, active 5â€“7 extending `LeadArm` +18 px forward into punch hitbox, recovery 8â€“12).
+    - `"kick"`: 19 ticks total (startup 1â€“7, active 8â€“11 extending `LeadLeg` into low kick zone, recovery 12â€“19).
+    - `"block"` / `"crouch_block"`: two-arm cross-guard posture adapting to standing or crouch-blocking (visual height â‰¤32 px).
+    - `"block_stun"` / `"crouch_block_stun"`: recoil/guard shudder holding last pose (8 ticks, visual height â‰¤32 px).
     - `"hit"`: recoil leaning backward holding last pose (18 ticks).
-    - `"knockdown"` / `"dead"`: held poses lying flat on floor with visual height ≤16 px.
+    - `"knockdown"` / `"dead"`: held poses lying flat on floor with visual height â‰¤16 px.
   - Enforced Animation Invariants in `scripts/Fighter.gd`:
     - Cosmetic only: Hitbox activation and combat timing remain driven by `state_ticks`.
     - Track isolation: Animation tracks may key only limb nodes under `Visual` (`Head`, `Hair`, `Headband`, `Ties`, `TorsoGi`, `Belt`, `BeltKnot`, `LeadArm`, `Glove`, `BackArm`, `LeadLeg`, `BackLeg`), never `Visual.scale.x` or collision nodes.
     - Neutral `RESET` on transition: In `change_state()`, neutral reset is applied before playing target animation.
     - Headless null guards: Wrapped all animation player calls in `if animation_player != null:`.
-  - Added test fixtures in `tests/test_fighter.gd` verifying Acceptance Criteria AC1–AC5 (`test_ac1_palette_application_on_setup`, `test_ac2_punch_animation_synchronization`, `test_ac3_attack_interrupt_neutral_reset`, `test_ac4_p2_mirrored_low_kick_invariant`, `test_ac5_headless_execution_safety`, `test_13_state_animations_and_track_isolation`, `test_crouch_and_knockdown_visual_heights`).
+  - Added test fixtures in `tests/test_fighter.gd` verifying Acceptance Criteria AC1â€“AC5 (`test_ac1_palette_application_on_setup`, `test_ac2_punch_animation_synchronization`, `test_ac3_attack_interrupt_neutral_reset`, `test_ac4_p2_mirrored_low_kick_invariant`, `test_ac5_headless_execution_safety`, `test_13_state_animations_and_track_isolation`, `test_crouch_and_knockdown_visual_heights`).
   - Added unit test fixtures in `tests/test_fighter.py` validating `AnimationPlayer` scene structure, constants, invariants, and mapping.
 - Implemented modular procedural Polygon2D karateka rig and dynamic palette swapping (Issue #13):
   - Replaced placeholder `ColorRect` visual nodes (`Body`, `Head`, `AttackVisual`) in `scenes/Fighter.tscn` with a 12-node hierarchical `Polygon2D` karateka rig: `BackArm` (z -2), `BackLeg` (z -1), `TorsoGi` (z 0), `Belt` (z 1), `BeltKnot` (z 1), `Head` (z 2), `Hair` (z 3), `Headband` (z 3), `Ties` (z 2), `LeadLeg` (z 4), `LeadArm` (z 5), and `Glove` (z 5) with relative z-indexing (`z_as_relative = true`).
@@ -264,7 +274,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Python tests in `tests/test_camera.py` validating files, script declarations, scene structure, methods, and mathematical invariants (8 tests).
   - Registered `test_camera.gd` into `tests/test_runner.gd`.
 - Implemented `scenes/Fighter.tscn` and `scripts/Fighter.gd` with 13-state deterministic FSM, combat mechanics, and damage receiving:
-  - 13 distinct states: `IDLE`, `WALK_FORWARD` (100 px/s), `WALK_BACKWARD` (80 px/s), `JUMP_SQUAT` (3 ticks), `JUMPING` (-420 px/s jump velocity, 980 px/s² gravity), `CROUCHING` (32 px hurtbox height), `ATTACK_PUNCH`, `ATTACK_KICK`, `BLOCKING`, `BLOCK_STUN`, `HIT_STUN`, `KNOCKDOWN`, `DEAD`.
+  - 13 distinct states: `IDLE`, `WALK_FORWARD` (100 px/s), `WALK_BACKWARD` (80 px/s), `JUMP_SQUAT` (3 ticks), `JUMPING` (-420 px/s jump velocity, 980 px/sÂ² gravity), `CROUCHING` (32 px hurtbox height), `ATTACK_PUNCH`, `ATTACK_KICK`, `BLOCKING`, `BLOCK_STUN`, `HIT_STUN`, `KNOCKDOWN`, `DEAD`.
   - Frame-accurate attack data presets for Punch (12 ticks total: 4 startup, 3 active, 5 recovery; 8 clean damage, 12 hit stun, 6 block stun, 40 px/s knockback) and Kick (19 ticks total: 7 startup, 4 active, 8 recovery; 14 clean damage, 18 hit stun, 8 block stun, 80 px/s knockback).
   - Tactical High/Low defense rules with dedicated button blocking: high attacks blockable standing or crouching; low attacks must be blocked crouching (standing block fails taking full damage and knockback).
   - 80% damage mitigation on successful blocks (`floor(damage * 0.2)`) with zero knockback.
