@@ -346,5 +346,19 @@ class TestMobControl(unittest.TestCase):
 
         self.assertIn("test_scenario_14_gate_spread_hires_viewport_and_road_scroller", self.test_gd)
 
+    def test_multi_cannon_squad_and_bullet_power_contract(self):
+        """Verify multi-cannon squad (MAX_CANNONS = 5), xN gate progression, bullet_power scaling, and visual status UI."""
+        self.assertIn("const MAX_CANNONS: int = 5", self.main_script)
+        self.assertIn("var cannons: Array[Cannon3DScript]", self.main_script)
+        self.assertIn("var bullet_power: int = 1", self.main_script)
+        self.assertIn("func get_cannon_count() -> int", self.main_script)
+        self.assertIn("func get_bullet_power() -> int", self.main_script)
+        self.assertIn("func _on_bullet_hit_multiplier_gate(", self.main_script)
+        self.assertIn("func _reset_cannons_and_power()", self.main_script)
+        self.assertIn("var power: int = 1", self.mob_script)
+        self.assertIn("func _update_power_visuals()", self.mob_script)
+        self.assertIn('node name="CannonStatusLabel" type="Label"', self.main_scene)
+        self.assertIn("test_scenario_15_multi_cannon_squad_and_bullet_power_progression", self.test_gd)
+
 if __name__ == "__main__":
     unittest.main()

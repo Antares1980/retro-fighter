@@ -106,6 +106,23 @@ PRESS R TO RESTART OR ESC FOR MENU"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="CannonStatusLabel" type="Label" parent="UI"]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 12.0
+offset_right = 320.0
+offset_bottom = 48.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.9, 0.96, 1, 0.95)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.9)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 24
+text = "CANNONS: 1/5 | BULLET POWER: 1"
+horizontal_alignment = 1
+vertical_alignment = 1
+
 [node name="ControlsHint" type="Label" parent="UI"]
 anchors_preset = 7
 anchor_left = 0.5

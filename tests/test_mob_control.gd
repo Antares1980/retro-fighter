@@ -84,6 +84,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_12_vault_destruction_and_evolution_gates()
 	test_scenario_13_progression_loop_input_latching_and_pacing()
 	test_scenario_14_gate_spread_hires_viewport_and_road_scroller()
+	test_scenario_15_multi_cannon_squad_and_bullet_power_progression()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -1746,6 +1747,184 @@ func test_scenario_14_gate_spread_hires_viewport_and_road_scroller() -> void:
 	if active_tree != null and main.get_window() != null:
 		assert_equal(main.get_window().content_scale_size, Vector2i(384, 224), "GWT 3: return_to_menu() restored (384, 224) viewport")
 		assert_equal(main.get_window().content_scale_mode, Window.CONTENT_SCALE_MODE_VIEWPORT, "GWT 3: return_to_menu() restored VIEWPORT stretch mode")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
+
+func test_scenario_15_multi_cannon_squad_and_bullet_power_progression() -> void:
+	print("\nScenario 15: Multi-Cannon Squad Progression (Max 5) & Bullet Power Scaling on xN Gates")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	main.init_stage(0)
+	main.cleanup_all_mobs()
+
+	# 1. Initial state verification
+	assert_equal(main.get_cannon_count(), 1, "Initially 1 active cannon in squad")
+	assert_equal(main.get_bullet_power(), 1, "Initially bullet_power is 1")
+	if main.cannon_status_label != null:
+		assert_equal(main.cannon_status_label.text, "CANNONS: 1/5 | BULLET POWER: 1", "Initial HUD CannonStatusLabel text matches")
+	if main.cannon_power_label_3d != null:
+		assert_equal(main.cannon_power_label_3d.text, "CANNONS: 1/5 | PWR: x1", "Initial 3D CannonPowerLabel3D text matches")
+
+	# 2. +N gates duplicate bullets on road but do NOT add cannons or increase bullet power
+	var gate_plus2 = main.gates_container.get_node("gate_left_1")
+	var mob_p2 = main._spawn_blue_mob(Vector3(gate_plus2.global_position.x, 0.5, gate_plus2.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 3, "+2 gate duplicates bullet into 3 total mobs")
+	assert_equal(main.get_cannon_count(), 1, "+2 gate does not spawn a new cannon")
+	assert_equal(main.get_bullet_power(), 1, "+2 gate does not increase bullet power")
+	assert_true(is_instance_valid(mob_p2), "Original mob remains valid")
+	main.cleanup_all_mobs()
+
+	# 3. First 4 bullets touching xN gates spawn new cannons up to MAX_CANNONS = 5
+	var gate_x2 = main.gates_container.get_node("gate_right_1") # x2
+	var gate_x3 = main.gates_container.get_node("gate_left_2")  # x3
+
+	# Hit 1 on x2 -> 2 cannons, road bullet also duplicated (1 -> 2)
+	var _hit1 = main._spawn_blue_mob(Vector3(gate_x2.global_position.x, 0.5, gate_x2.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 2, "x2 gate still duplicates passing bullet on road (1 -> 2)")
+	assert_equal(main.get_cannon_count(), 2, "Hit 1 on x2 spawns 2nd cannon (2/5)")
+	assert_equal(main.get_bullet_power(), 1, "bullet_power remains 1 while adding cannons")
+	main.cleanup_all_mobs()
+
+	# Hit 2 on x2 -> 3 cannons
+	var _hit2 = main._spawn_blue_mob(Vector3(gate_x2.global_position.x, 0.5, gate_x2.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_cannon_count(), 3, "Hit 2 on x2 spawns 3rd cannon (3/5)")
+	assert_equal(main.get_bullet_power(), 1, "bullet_power remains 1 at 3/5 cannons")
+	main.cleanup_all_mobs()
+
+	# Hit 3 on x3 -> 4 cannons
+	var _hit3 = main._spawn_blue_mob(Vector3(gate_x3.global_position.x, 0.5, gate_x3.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 3, "x3 gate duplicates passing bullet on road (1 -> 3)")
+	assert_equal(main.get_cannon_count(), 4, "Hit 3 on x3 spawns 4th cannon (4/5)")
+	assert_equal(main.get_bullet_power(), 1, "bullet_power remains 1 at 4/5 cannons")
+	main.cleanup_all_mobs()
+
+	# Hit 4 on x3 -> 5 cannons (MAX_CANNONS reached)
+	var _hit4 = main._spawn_blue_mob(Vector3(gate_x3.global_position.x, 0.5, gate_x3.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_cannon_count(), 5, "Hit 4 on x3 spawns 5th cannon (5/5 max limit)")
+	assert_equal(main.get_bullet_power(), 1, "bullet_power is 1 upon reaching 5th cannon")
+	main.cleanup_all_mobs()
+
+	# 4. Verify 5-cannon side-by-side formation, steering bounds, and simultaneous 5-bullet volley
+	main.cannon.position.x = 0.0
+	main._update_cannon_squad_positions()
+	for i in range(main.cannons.size()):
+		var ci = main.cannons[i]
+		assert_true(ci.position.x >= -5.0 and ci.position.x <= 5.0, "Cannon %d within road bounds [-5.0, 5.0]" % i)
+		for j in range(i + 1, main.cannons.size()):
+			var cj = main.cannons[j]
+			assert_true(abs(ci.position.x - cj.position.x) >= 1.0, "Cannons %d and %d separated laterally" % [i, j])
+
+	# Steer hard left and right with 5 cannons: all 5 cannons stay strictly within [-5.0, 5.0]
+	main.cannon.move_input = -1.0
+	for _step_i in range(60):
+		main.step(1.0 / 60.0)
+	for i in range(main.cannons.size()):
+		assert_true(main.cannons[i].position.x >= -5.001 and main.cannons[i].position.x <= 5.001, "Left-clamped cannon %d stays on road" % i)
+
+	main.cannon.move_input = 1.0
+	for _step_i in range(120):
+		main.step(1.0 / 60.0)
+	for i in range(main.cannons.size()):
+		assert_true(main.cannons[i].position.x >= -5.001 and main.cannons[i].position.x <= 5.001, "Right-clamped cannon %d stays on road" % i)
+	main.cannon.move_input = 0.0
+	main.cannon.position.x = 0.0
+	main._update_cannon_squad_positions()
+	main.cleanup_all_mobs()
+
+	# 5. Subsequent hits on xN gates after 5 cannons increase bullet_power accordingly
+	# Hit x2 gate -> bullet_power increases by +2 (1 -> 3), cannons stay at 5
+	var _hit5_x2 = main._spawn_blue_mob(Vector3(gate_x2.global_position.x, 0.5, gate_x2.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_cannon_count(), 5, "Cannon count stays capped at 5 after 5th hit")
+	assert_equal(main.get_bullet_power(), 3, "Hitting x2 gate at 5 cannons increases bullet_power by +2 (1 -> 3)")
+	main.cleanup_all_mobs()
+
+	# Hit x3 gate -> bullet_power increases by +3 (3 -> 6)
+	var _hit6_x3 = main._spawn_blue_mob(Vector3(gate_x3.global_position.x, 0.5, gate_x3.global_position.z))
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_cannon_count(), 5, "Cannon count remains 5")
+	assert_equal(main.get_bullet_power(), 6, "Hitting x3 gate at 5 cannons increases bullet_power by +3 (3 -> 6)")
+	if main.cannon_status_label != null:
+		assert_equal(main.cannon_status_label.text, "CANNONS: 5/5 | BULLET POWER: 6", "HUD label updates to CANNONS: 5/5 | BULLET POWER: 6")
+	if main.cannon_power_label_3d != null:
+		assert_equal(main.cannon_power_label_3d.text, "CANNONS: 5/5 | PWR: x6", "3D label updates to CANNONS: 5/5 | PWR: x6")
+	main.cleanup_all_mobs()
+
+	# 6. All 5 cannons fire simultaneously with the upgraded bullet_power (6) and visual scaling
+	main.cannon.fire_accumulator = 0.14
+	main.cannon.fire_held = true
+	main.step(1.0 / 60.0)
+	main.cannon.fire_held = false
+	assert_equal(main.get_live_blue_mobs_count(), 5, "All 5 cannons fire simultaneously in one volley (5 bullets spawned)")
+	for b in main.blue_mobs:
+		assert_equal(b.power, 6, "Fired bullet has upgraded power == 6")
+		if b.mesh_instance != null:
+			assert_true(b.mesh_instance.scale.x > 1.0, "Powered-up bullet has visually scaled mesh (> 1.0)")
+	main.cleanup_all_mobs()
+
+	# 7. Gate clone power inheritance: a power-6 bullet passing +2 gate spawns clones with power == 6
+	var p6_mob = main._spawn_blue_mob(Vector3(gate_plus2.global_position.x, 0.5, gate_plus2.global_position.z), {}, 6)
+	main._resolve_gate_contacts()
+	main.flush_pending_spawns()
+	assert_equal(main.get_live_blue_mobs_count(), 3, "Power-6 bullet duplicated into 3 bullets at +2 gate")
+	for b in main.blue_mobs:
+		assert_equal(b.power, 6, "Cloned bullet inherits parent power == 6")
+	assert_true(is_instance_valid(p6_mob), "Parent power-6 bullet remains valid")
+	main.cleanup_all_mobs()
+
+	# 8. Combat with powered-up bullets: Red Mob survival, Vault damage, Pylon damage, Giant Boss damage
+	# 8a. Power-3 bullet clashes with 3 Red Mobs sequentially
+	var p3_blue = main._spawn_blue_mob(Vector3(0.0, 0.5, 2.0), {}, 3)
+	var r_a = main._spawn_red_mob()
+	r_a.position = Vector3(0.0, 0.5, 2.0)
+	main._resolve_mob_clashes()
+	assert_false(main.is_live(r_a), "Red mob 1 consumed in clash")
+	assert_true(main.is_live(p3_blue), "Power-3 blue bullet survives 1st red clash")
+	assert_equal(p3_blue.power, 2, "Blue bullet power reduced from 3 to 2 after 1st clash")
+
+	var r_b = main._spawn_red_mob()
+	r_b.position = Vector3(0.0, 0.5, 2.0)
+	main._resolve_mob_clashes()
+	assert_false(main.is_live(r_b), "Red mob 2 consumed in clash")
+	assert_true(main.is_live(p3_blue), "Blue bullet survives 2nd red clash")
+	assert_equal(p3_blue.power, 1, "Blue bullet power reduced from 2 to 1 after 2nd clash")
+
+	var r_c = main._spawn_red_mob()
+	r_c.position = Vector3(0.0, 0.5, 2.0)
+	main._resolve_mob_clashes()
+	assert_false(main.is_live(r_c), "Red mob 3 consumed in clash")
+	assert_false(main.is_live(p3_blue), "Blue bullet consumed on 3rd clash when power reaches 0")
+	main.cleanup_all_mobs()
+
+	# 8b. Power-10 bullet deals 10 damage to Giant Boss Base
+	var hp_before: int = main.giant_enemy.hp
+	var _p10_boss = main._spawn_blue_mob(Vector3(0.0, 1.25, main.giant_enemy.global_position.z), {}, 10)
+	main._resolve_giant_contacts()
+	assert_equal(main.giant_enemy.hp, hp_before - 10, "Power-10 bullet deals 10 damage to Giant Boss Base")
+
+	# 9. Reset on stage transition / retry restores 1 cannon and bullet_power == 1
+	main.reset_stage()
+	assert_equal(main.get_cannon_count(), 1, "reset_stage() resets active cannon count to 1")
+	assert_equal(main.get_bullet_power(), 1, "reset_stage() resets bullet_power to 1")
 
 	main.cleanup_stage_entities()
 	if active_tree != null:
