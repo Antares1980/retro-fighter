@@ -1,200 +1,300 @@
-# 📋 Implementation Plan & Refinement Lifecycle: Mob Control 3D — Always-On Auto-Fire Cannons, Uninterrupted Muzzle Volleys, & Aggressive Time-Escalating Enemy Horde
+# 📋 Implementation Plan & Requirement Specification: Claude GitHub App Integration (`claude.yml` & Automated `pr-review.yml` Auto-Fix & Squash-Merge Pipeline)
 
-## 📝 Initial Draft Proposal
+## 📝 Context & Problem Statement
 
-User Request (`/grill-me`):
-> "I want you to help me writing a new requirement. When I leave press the space button the cannon, at some point, doesn't shoot, I have to wait a few seconds to start again. I want the cannons to shoot always. Remove the space button functionality, the cannons must shoot all the time. review the functionality of the phase to add more and more enemies (increasing the number to increase the difficulty) when the time passes."
+Based on Product Owner design review (`/grill-me`) and the reference implementations in [`AntaresAndBharani/darwin-trader`](https://github.com/AntaresAndBharani/darwin-trader) and [`AntaresAndBharani/crosstrainingapp`](https://github.com/AntaresAndBharani/crosstrainingapp):
 
-### Root-Cause Diagnosis & Clarified Design Decisions (Operator `/grill-me` Interview Consensus)
+1. **Missing Interactive `@claude` GitHub App Workflow (`.github/workflows/claude.yml`)**:
+   - Currently, `AntaresAndBharani/retro-fighter` only defines [`ci.yml`](file:///c:/Users/rogal/workspaces/ws-games/retro-fighter/.github/workflows/ci.yml) (`name: CI`), which executes Python unit tests (`python -m unittest discover -s tests`) and Godot 4.3 headless engine tests (`godot --headless -s res://tests/test_runner.gd`).
+   - Maintainers cannot mention `@claude` in GitHub Issues, Issue Comments, Pull Request Reviews, or PR Review Comments to trigger interactive Claude Opus 5.5 (`--model claude-opus-5-5 --effort high`) sessions directly on GitHub.com.
+2. **Missing Automated PR Review, In-Place Auto-Fix & Squash-Merge Pipeline (`.github/workflows/pr-review.yml` & `.github/workflows/prompts/pr-review.md`)**:
+   - Pull Requests opened in `retro-fighter` do not currently undergo automated Claude Opus 5.5 High architectural review, in-place auto-fixing (`[skip pr-review]`), zero-token `merge_only` recovery fast-path, self-healing label governance, exact-SHA CI gating against `CI`, automatic squash-merging, and parent-story closure.
 
-1. **Always-On Automatic Cannon Firing & Removal of Space Button Fire Control:**
-   - **Root Cause of Firing Pause:** In the previous implementation, when 5 cannons fired through multiplier gates (`x2`, `x3`, `+6`), live blue bullets quickly reached `MAX_MOBS = 300`. Once at 300 mobs, `_on_cannon_shoot_requested()` hit `if get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS: break`, completely blocking all cannon muzzle shots for several seconds while the existing 300 bullets traveled all the way to `Z = -35.0` (far beyond the visible highway and enemy spawn line at `Z = -22.0`).
-   - **Decision:**
-     - **Remove Manual Fire Input (`SPACE` / `J`):** Cannons now shoot **automatically and continuously 100% of the time** during `GameState.PLAYING` (`auto_fire = true` by default in `Cannon3D.gd`) at every `FIRE_INTERVAL = 0.14s` tick without pressing `SPACE` or `J`.
-     - **HUD Controls Hint Update:** Update `ControlsHint` in `MobControlMain.tscn` and `MobControlMain.gd` to `"A/D or ARROWS: STEER | ESC: MENU"`.
-     - **Tighter Upper-Highway Despawn Bound:** In `survival_mode`, tighten `get_cleanup_bound_z()` from `-35.0` to `SURVIVAL_CLEANUP_BOUND_Z = -24.5` (immediately past the enemy spawn zone at `Z = -22.0..-23.5`) so bullets that clear the highway despawn right at the top edge of the screen.
-     - **Downrange Bullet Recycling (Zero Muzzle Jamming):** In `_on_cannon_shoot_requested()`, cannon muzzle shots are **never blocked** by `MAX_MOBS`. Whenever spawning a cannon volley would exceed `MAX_MOBS = 300`, `_recycle_furthest_blue_mob()` immediately frees the furthest-downrange live blue bullet (lowest `Z` coordinate at the top of the road) to make room for the fresh cannon shot at the muzzle.
+---
 
-2. **Aggressive Time-Escalating Enemy Horde (Soldiers & Bosses):**
-   - **Root Cause of Low Late-Phase Difficulty:** Previously, at `00:36` survival time, the player already had `5/5 CANNONS` and `BULLET POWER: 25` (~3,000+ DPS after gates), while the spawner only generated `1–4` Soldiers (`1 HP` each) every `~1.1s` and 1 Boss (`~300 HP`) every `~12s`. Because `on_mob_clash()` subtracts `red_hp` from `blue_pwr`, a single `Power 25` yellow bullet plowed through **25 `1-HP` Soldiers** before expiring, leaving the highway completely empty of enemies.
-   - **Decision (Aggressive Horde Escalation):**
-     - **Escalating Soldier Wave Size & Frequency:**
-       - Decrease `SOLDIER_BASE_INTERVAL` to `1.1s` and `SOLDIER_MIN_INTERVAL` to `0.18s`.
-       - Scale **both minimum and maximum** Soldier burst sizes (`get_soldier_min_burst(elapsed)` and `get_soldier_max_burst(elapsed)`) so waves grow from `2–3` soldiers at `t = 0s`, to `6–11` soldiers at `t = 36s`, up to `12–24` soldiers per burst by `t = 90s+`, spawned in multi-lane staggered formations across `X in [-3.8, +3.8]`.
-     - **Escalating Soldier HP / Power (`get_scaled_soldier_power(elapsed)`):**
-       - Scale Red Soldier `power` (`hp`) upward with survival time (`1 + int(floor(elapsed / 15.0))`, capped at `15`) so advancing soldiers absorb proportionally more bullet power in `on_mob_clash()` and cannot be wiped out 25-for-1 by a single bullet.
-     - **Escalating Multi-Lane Bosses:**
-       - Shorten Boss spawn intervals (`BOSS_BASE_INTERVAL = 9.5s` down to `BOSS_MIN_INTERVAL = 3.2s`).
-       - Scale concurrent active Boss cap (`get_max_concurrent_bosses(elapsed)`) up to `5` simultaneous Bosses (`1` at `0s`, `2` at `20s`, `3` at `45s`, `4` at `70s`, `5` at `100s+`).
-       - Scale Boss HP (`get_scaled_boss_hp(elapsed)`) with accelerating time growth (`160 + int(floor(elapsed * 8.0 + elapsed * elapsed * 0.12))`) so Bosses remain formidable lane threats as time passes.
+## 🤝 Aligned Design Decisions (`/grill-me` Consensus)
 
-3. **Paced Cannon & Bullet Power Upgrade Progression:**
-   - **Decision:** Because cannons now fire non-stop from `t = 0.0s`, pace out the `xN` gate upgrade curve in `survival_mode` so the player does not unlock all `5/5 CANNONS` in the first second of play:
-     - Require `CANNON_UNLOCK_CHARGE_THRESHOLD: int = 12` gate hits per additional cannon (`1 -> 2 -> 3 -> 4 -> 5`) in `survival_mode`, followed by `GATE_POWER_EARLY_THRESHOLD: int = 10` gate hits per power level for tiers `1 -> 6`, and `GATE_CHARGE_THRESHOLD: int = 35` gate hits per power level for tiers `6 -> 25`.
+1. **Dual-Workflow Scope (`claude.yml` + `pr-review.yml` + `prompts/pr-review.md`)**:
+   - Integrate **both** the interactive `@claude` mention workflow (`.github/workflows/claude.yml`) and the unified automated PR review, in-place auto-fix, exact-SHA CI verification, and squash-merge workflow (`.github/workflows/pr-review.yml` + `.github/workflows/prompts/pr-review.md`) modeled on `AntaresAndBharani/crosstrainingapp` and `AntaresAndBharani/darwin-trader`.
+2. **Lightweight Runner Environment (No Godot Installation Inside `pr-review.yml`)**:
+   - Keep both `claude.yml` and `pr-review.yml` lightweight without downloading/installing the Godot 4.3 engine binary inside the review job.
+   - In `pr-review.yml`, Claude Opus 5.5 High inspects `pr_meta.json`, `pr_diff.txt`, and the repository source files (`Read,Write,Edit,MultiEdit,Grep,Glob,Bash`), applies any GDScript (`scripts/`, `tests/`), scene (`scenes/`), Python test (`tests/test_*.py`), or documentation (`CHANGELOG.md`, `docs/`) fixes directly in the working tree, runs the lightweight Python static/configuration test suite (`python3 -m unittest discover -s tests`) in-place, and writes `pr_review_output.json`.
+   - Full Godot 4.3 headless engine verification (`test-godot`) and Python test verification (`test-python`) are executed by the existing [`ci.yml`](file:///c:/Users/rogal/workspaces/ws-games/retro-fighter/.github/workflows/ci.yml) (`CI`) workflow, which `pr-review.yml` strictly polls for `--commit "$CURRENT_SHA"` before merging.
+3. **Self-Healing Label Parity + Orchestrator Compatibility**:
+   - Include the full self-healing label set from `crosstrainingapp` and `darwin-trader` (`review:approved`, `review:changes-requested`, `needs-refactor`, `status:needs-po-input`, `status:ready`, `status:done`, `dev-implemented`, `tech-debt`) with idempotent `gh label create <name> -R "$REPO" --force` (`ensure_label`) before any label operation so missing labels never crash the workflow.
+   - Ensure and apply `needs-refactor` alongside `review:changes-requested` whenever a PR receives a `CHANGES_REQUESTED` verdict or when CI fails/times out on `CURRENT_SHA`, and remove `needs-refactor` when `review:approved` is applied.
+   - Ensure and apply `dev-implemented` alongside `status:done` (while removing `ready-for-dev` and `status:ready`) when closing a completed parent story.
+4. **Exact-SHA CI Polling Against `CI` (`.github/workflows/ci.yml`)**:
+   - Keep `.github/workflows/ci.yml` named `CI` (`CI_WORKFLOW_NAME: "CI"`).
+   - Configure `pr-review.yml` to poll `gh run list -R "$REPO" --commit "$CURRENT_SHA" -w "$CI_WORKFLOW_NAME" -L 1` for up to 60 attempts at 10-second intervals (10 minutes max) and require an explicit `CI_PASSED="true"` (`completed:success`) gate before executing `gh pr merge "$PR_NUMBER" -R "$REPO" --squash --delete-branch`.
+5. **Static Workflow Regression Test Coverage (`tests/test_claude_workflows.py`)**:
+   - Add a deterministic Python `unittest` test suite in `tests/test_claude_workflows.py` (automatically discovered and executed by `python -m unittest discover -s tests` in [`ci.yml`](file:///c:/Users/rogal/workspaces/ws-games/retro-fighter/.github/workflows/ci.yml)) verifying the structural, concurrency, fast-path, self-healing label, and exact-SHA CI polling contracts of `claude.yml`, `pr-review.yml`, and `.github/workflows/prompts/pr-review.md`.
+
+---
+
+## 🏗️ Target Architecture & Workflow State Machine
+
+```mermaid
+flowchart TD
+    subgraph Interactive ["1. Interactive @claude Workflow (.github/workflows/claude.yml)"]
+        Mention["@claude mention in issue_comment, pull_request_review_comment,\npull_request_review, or issues (opened/assigned)"] --> Checkout1["actions/checkout@v4 (fetch-depth: 1)"]
+        Checkout1 --> ClaudeInteractive["anthropics/claude-code-action@v1\n(--model claude-opus-5-5 --effort high)"]
+    end
+
+    subgraph AutomatedPR ["2. Automated PR Review & Auto-Merge (.github/workflows/pr-review.yml)"]
+        Trigger["PR Event (opened, synchronize, ready_for_review, reopened)\nor workflow_dispatch(pr_number)"] --> Meta["Step: Check PR state, loop cap & skip markers (steps.meta)"]
+        Meta -->|"STATE != OPEN or Draft"| ExitNoOp["Exit 0 (skip=true)"]
+        Meta -->|"LAST_MSG contains [skip pr-review]\nAND latest verdict == APPROVED"| MergeOnly["Fast-Path (merge_only=true, 0 LLM tokens):\nEnsure review:approved & remove needs-refactor"]
+        Meta -->|"LAST_MSG contains [skip pr-review]\nAND not APPROVED"| ExitNoOp
+        Meta -->|"ROUNDS >= ROUND_CAP (3)"| Escalate["Ensure & add status:needs-po-input\nPost escalation comment & Exit 0"]
+        Meta -->|"Needs Review (skip=false, merge_only=false)"| FetchCtx["Checkout PR Branch (fetch-depth: 0)\n+ Fetch pr_meta.json & pr_diff.txt"]
+        FetchCtx --> ClaudeReview["Run Claude Opus 5.5 High Review & In-Place Auto-Fix\n(.github/workflows/prompts/pr-review.md)"]
+        ClaudeReview --> CommitStep["Commit & Push Auto-Fixes ([skip pr-review])\nUpdate CURRENT_SHA"]
+        CommitStep --> PostVerdict["Post Verdict Comment\nIdempotently Create & Apply Labels\nCreate Follow-up Backlog Issues"]
+        PostVerdict -->|"verdict == CHANGES_REQUESTED"| ExitChanges["Apply review:changes-requested + needs-refactor\nExit 0"]
+        PostVerdict -->|"verdict == APPROVED"| PollCI["Wait for 'CI' Workflow Run\nwhere headSha == CURRENT_SHA (Max 60 x 10s = 10 min)"]
+        MergeOnly --> PollCI
+        PollCI -->|"CI_PASSED == true"| SquashMerge["gh pr merge --squash --delete-branch"]
+        PollCI -->|"CI Failed or Timed Out"| CIFail["Swap label to review:changes-requested + needs-refactor\nPost CI Failure Comment & Exit 1"]
+        SquashMerge --> CloseStory["Check Linked Subtask & Parent Story\nApply status:done + dev-implemented & Close if 0 Open Siblings"]
+    end
+```
+
+---
+
+## 📂 Component Impact Table
+
+| File / Resource | Action | Responsibility |
+| :--- | :--- | :--- |
+| `.github/workflows/claude.yml` | **Create** | Interactive `@claude` GitHub App workflow triggered on `issue_comment`, `pull_request_review_comment`, `pull_request_review`, and `issues`, invoking `anthropics/claude-code-action@v1` with `--model claude-opus-5-5 --effort high`. |
+| `.github/workflows/pr-review.yml` | **Create** | Unified automated PR review, in-place auto-fix (`[skip pr-review]`), zero-token `merge_only` recovery fast-path, idempotent self-healing label governance (`review:*`, `status:*`, `needs-refactor`, `dev-implemented`, `tech-debt`), exact-SHA polling of `CI`, squash-merge, and parent-story closure workflow. |
+| `.github/workflows/prompts/pr-review.md` | **Create** | `retro-fighter`-tailored review & auto-fix instructions for Claude Opus 5.5 High covering Godot 4.3 2D Arcade Fighter (`scripts/`, `scenes/`) & 3D Mob Control (`scripts/mob_control/`, `scenes/mob_control/`) architecture, deterministic `step(delta)` simulation testability, static/contract parity (`tests/test_*.py` & `tests/test_*.gd`), audio/resource hygiene, lightweight `python3 -m unittest discover -s tests` execution, and `pr_review_output.json` schema output. |
+| `tests/test_claude_workflows.py` | **Create** | Python `unittest` static regression test suite verifying `claude.yml`, `pr-review.yml`, and `.github/workflows/prompts/pr-review.md` contracts via `python -m unittest discover -s tests`. |
+| `CHANGELOG.md` | **Modify** | Document the Claude GitHub App integration (`claude.yml`, `pr-review.yml`, `prompts/pr-review.md`, and `tests/test_claude_workflows.py`) under `## [Unreleased]`. |
 
 ---
 
 ## 🎯 Final Decision Plan & User Story Specification
 
+### Title
+`feat(ci): integrate Claude GitHub App workflows (claude.yml & automated pr-review.yml auto-fix and squash-merge)`
+
+### Sizing & Pattern Classification
 - **Resolution Type:** Consensus Agreement (Operator `/grill-me` Interview)
-- **User Story:** As a player of **Mob Control 3D**, I want the cannons to fire automatically and continuously at all times without pressing `SPACE` or `J`, with zero firing pauses or muzzle jams even when multiplied bullets reach the highway cap, while facing an aggressively escalating horde of Soldiers and Bosses whose numbers, spawn frequency, and durability increase continuously as survival time passes.
+- **Pattern:** **Pattern A (Standalone Task, $\le 5$ files)**
+- **Files Touched:** 5 files (`.github/workflows/claude.yml`, `.github/workflows/pr-review.yml`, `.github/workflows/prompts/pr-review.md`, `tests/test_claude_workflows.py`, `CHANGELOG.md`)
 
-### Architecture & Data Flow
-
-```mermaid
-flowchart TD
-    subgraph AutoFireLoop["1. Always-On Auto-Fire & Uninterrupted Muzzle Volleys"]
-        Step["Cannon3D.step(delta)\nSteer Left/Right via A/D or Arrows\nauto_fire == true (SPACE/J fire removed)"] --> Cadence{"fire_accumulator >= 0.14s?"}
-        Cadence -->|Yes| EmitShoot["shoot_requested.emit(muzzle_pos)"]
-        EmitShoot --> CapCheck{"live_blue_mobs >= MAX_MOBS (300)?"}
-        CapCheck -->|Yes| Recycle["_recycle_furthest_blue_mob()\nFree blue mob with lowest Z (top of road)"]
-        CapCheck -->|No| SpawnVolley["_spawn_blue_mob() for each active cannon (1..5)"]
-        Recycle --> SpawnVolley
-        SpawnVolley --> Cleanup["Phase 4 Bounds Cleanup:\nDespawn blue mobs at Z < -24.5 (SURVIVAL_CLEANUP_BOUND_Z)"]
-    end
-
-    subgraph PacedUpgrades["2. Paced Cannon & Bullet Power Progression"]
-        GateHit["Blue bullet passes xN Gate\n_on_bullet_hit_multiplier_gate(mult_val)"] --> CannonCheck{"cannons.size() < 5?"}
-        CannonCheck -->|Yes (Survival)| CannonCharge["gate_power_charge += 1\nAt >= 12 hits: _add_cannon()"]
-        CannonCheck -->|No| PowerCharge["Accumulate gate_power_charge\nUpgrade bullet_power up to MAX_BULLET_POWER (25)"]
-    end
-
-    subgraph HordeEscalation["3. Aggressive Time-Escalating Enemy Horde"]
-        Timer["time_elapsed advances every step(delta)"] --> SoldierWave["Soldier Spawner:\nInterval shrinks 1.1s -> 0.18s\nBurst grows from 2..3 up to 12..24 soldiers\nSoldier HP/Power scales: 1 + floor(t / 15s)"]
-        Timer --> BossWave["Boss Spawner:\nInterval shrinks 9.5s -> 3.2s\nConcurrent Bosses scale 1 -> 5\nBoss HP scales: 160 + floor(8t + 0.12t²)"]
-    end
-```
-
-### Technical Specifications
-
-#### 1. Always-On Auto-Fire & Space Button Removal (`scripts/mob_control/Cannon3D.gd`, `scenes/mob_control/MobControlMain.tscn`, `scripts/mob_control/MobControlMain.gd`)
-- **`Cannon3D.gd` Auto-Fire Mechanics:**
-  - Add `@export var auto_fire: bool = true` to `Cannon3D` (true by default).
-  - Remove `KEY_SPACE`, `KEY_J`, `mc_fire`, and `p1_punch` from triggering firing in `Cannon3D.step(delta)`.
-  - In `Cannon3D.step(delta)`:
-    - `var effective_fire: bool = auto_fire or fire_held`
-    - When `effective_fire` is true (which is always true during normal gameplay since `auto_fire = true`), `fire_accumulator` advances by `delta` every tick and emits `shoot_requested(muzzle_pos)` every `FIRE_INTERVAL = 0.14s` using a `while fire_accumulator >= FIRE_INTERVAL:` loop so no fractional time is lost.
-  - In `Cannon3D.reset()`: preserve `auto_fire = true`, reset `position = Vector3(0.0, 0.5, 9.0)`, `move_input = 0.0`, `fire_held = false`, `fire_accumulator = 0.0`.
-- **HUD Controls Hint Update (`MobControlMain.tscn` & `MobControlMain.gd`):**
-  - Update `UI/ControlsHint` text in `MobControlMain.tscn` (and ensure `_resolve_nodes()` / `init_survival_phase()` maintains it) to:
-    `"A/D or ARROWS: STEER | ESC: MENU"`
-  - On terminal banners (`GameState.DEFEAT`, `GameState.STAGE_CLEAR`, `GameState.VICTORY`), `KEY_R` and `KEY_ENTER` (and `KEY_SPACE` only for legacy stage clear/retry compatibility if required by existing tests) remain handled in `_unhandled_input(event)`, while during `GameState.PLAYING` pressing or releasing `SPACE` has zero effect on cannon firing.
-
-#### 2. Uninterrupted Muzzle Volleys: Tighter Despawn Bound & Downrange Recycling (`scripts/mob_control/MobControlMain.gd`)
-- **Upper-Highway Despawn Bound (`SURVIVAL_CLEANUP_BOUND_Z`):**
-  - Define `const SURVIVAL_CLEANUP_BOUND_Z: float = -24.5`.
-  - In `get_cleanup_bound_z() -> float`:
-    - When `survival_mode == true`, return `SURVIVAL_CLEANUP_BOUND_Z` (`-24.5`) so blue bullets that pass the enemy spawn zone (`Z = -22.0..-23.5`) are immediately cleaned up instead of traveling off-screen to `-35.0`.
-    - When `survival_mode == false` (legacy multi-stage mode), continue returning `highway_min_z - 3.0` so all legacy stage depth tests (`Scenario 10`) pass unmodified.
-- **Downrange Bullet Recycling (`_recycle_furthest_blue_mob()`):**
-  - Add `func _recycle_furthest_blue_mob() -> bool:` which finds the live `MobUnit3D` in `blue_mobs` with the smallest (most negative / furthest downrange) `position.z`, marks `is_consumed = true`, calls `queue_free()`, and removes it from `blue_mobs`.
-  - In `_on_cannon_shoot_requested(muzzle_pos: Vector3)`:
-    - When `survival_mode == true` (or when `auto_fire` is active), if `get_live_blue_mobs_count() + pending_spawns >= MAX_MOBS`, call `_recycle_furthest_blue_mob()` before spawning each cannon's shot so **every active cannon (`1..5`) always fires its bullet at the muzzle without ever stalling or waiting**.
-    - (Note: If all 300 blue mobs are at the exact same Z or `blue_mobs` was artificially pre-populated at `Z = 0.0` in legacy `Scenario 2` cap test with `survival_mode == false`, preserve legacy cap behavior when `survival_mode == false` so `Scenario 2` passes 100%).
-
-#### 3. Paced Cannon & Bullet Power Progression (`scripts/mob_control/MobControlMain.gd`)
-- Define `const CANNON_UNLOCK_CHARGE_THRESHOLD: int = 12` and `const GATE_POWER_EARLY_THRESHOLD: int = 10`.
-- In `_on_bullet_hit_multiplier_gate(mult_value: int)`:
-  - When `survival_mode == true`:
-    - If `cannons.size() < MAX_CANNONS`:
-      - Increment `gate_power_charge += 1`.
-      - When `gate_power_charge >= CANNON_UNLOCK_CHARGE_THRESHOLD`: subtract `CANNON_UNLOCK_CHARGE_THRESHOLD` and call `_add_cannon()`.
-    - Else if `bullet_power < 6`:
-      - Increment `gate_power_charge += maxi(1, mult_value)`.
-      - When `gate_power_charge >= GATE_POWER_EARLY_THRESHOLD`: subtract `GATE_POWER_EARLY_THRESHOLD`, increment `bullet_power = mini(6, bullet_power + 1)`, and call `_update_cannon_status_ui()`.
-    - Else if `bullet_power < MAX_BULLET_POWER`:
-      - Increment `gate_power_charge += 1`.
-      - When `gate_power_charge >= GATE_CHARGE_THRESHOLD`: subtract `GATE_CHARGE_THRESHOLD`, increment `bullet_power = mini(MAX_BULLET_POWER, bullet_power + 1)`, and call `_update_cannon_status_ui()`.
-  - When `survival_mode == false` (legacy stage mode used by `Scenario 15` and `Scenario 16`):
-    - Keep the immediate cannon unlock on `xN` hit and `+mult_value` jump to tier 6 followed by `GATE_CHARGE_THRESHOLD = 35` so `Scenario 15` and `Scenario 16` pass without regression.
-
-#### 4. Aggressive Time-Escalating Enemy Spawners (`scripts/mob_control/MobControlMain.gd`)
-- Update survival escalation constants and helper functions:
-  - `const SOLDIER_BASE_INTERVAL: float = 1.1`
-  - `const SOLDIER_MIN_INTERVAL: float = 0.18`
-  - `const BOSS_BASE_INTERVAL: float = 9.5`
-  - `const BOSS_MIN_INTERVAL: float = 3.2`
-  - `func get_soldier_min_burst(elapsed: float) -> int:`
-    $$\text{min\_burst} = \min\left(12,\; 2 + \lfloor \max(0.0, \text{elapsed}) / 12.0 \rfloor\right)$$
-  - `func get_soldier_max_burst(elapsed: float) -> int:`
-    $$\text{max\_burst} = \min\left(24,\; 3 + \lfloor \max(0.0, \text{elapsed}) / 6.0 \rfloor\right)$$
-  - `func get_scaled_soldier_power(elapsed: float) -> int:`
-    $$\text{soldier\_power} = \min\left(15,\; 1 + \lfloor \max(0.0, \text{elapsed}) / 15.0 \rfloor\right)$$
-  - `func get_max_concurrent_bosses(elapsed: float) -> int:`
-    - `elapsed >= 100.0` $\rightarrow 5$
-    - `elapsed >= 70.0` $\rightarrow 4$
-    - `elapsed >= 45.0` $\rightarrow 3$
-    - `elapsed >= 20.0` $\rightarrow 2$
-    - Otherwise $\rightarrow 1$
-  - `func get_scaled_boss_hp(elapsed: float) -> int:`
-    $$\text{boss\_hp} = \text{BOSS\_BASE\_HP} + \lfloor \max(0.0, \text{elapsed}) \times 8.0 + \max(0.0, \text{elapsed})^2 \times 0.12 \rfloor$$
-- In `_step_survival_spawners(delta: float)`:
-  - **Soldier Wave Spawning:**
-    - Interval: `base_soldier_int = maxf(SOLDIER_MIN_INTERVAL, SOLDIER_BASE_INTERVAL - (time_elapsed / 45.0) * 0.65)`
-    - Burst count: `rng.randi_range(get_soldier_min_burst(time_elapsed), get_soldier_max_burst(time_elapsed))`
-    - Soldier durability: `var s_pwr: int = get_scaled_soldier_power(time_elapsed)` passed to `r_mob.setup("red", s_pwr)`.
-    - Multi-lane formation placement: spread spawned soldiers across `X in [-3.8, +3.8]` and staggered `Z` rows (`-22.0 - float(i / 4) * 0.65`) with speed scaling up to `RED_SPEED * clampf(1.0 + time_elapsed / 120.0, 1.0, 1.85)`.
-  - **Boss Wave Spawning:**
-    - Interval: `base_boss_int = maxf(BOSS_MIN_INTERVAL, BOSS_BASE_INTERVAL - (time_elapsed / 25.0) * 2.2)`
-    - When `active_bosses.size() < get_max_concurrent_bosses(time_elapsed)`, spawn a new Boss with `get_scaled_boss_hp(time_elapsed)` and speed `clampf(BOSS_BASE_SPEED + (time_elapsed / 90.0) * 0.9, BOSS_BASE_SPEED, 4.0)`. If `time_elapsed >= 60.0` and `active_bosses.size() + 1 < max_bosses` and `rng.randf() < 0.35`, spawn a second Boss in an opposite lane in the same wave!
+### User Story
+**As a** project maintainer of Retro Fighter (`AntaresAndBharani/retro-fighter`)
+**I want** the Claude GitHub App integrated via `.github/workflows/claude.yml` (interactive `@claude` mentions) and `.github/workflows/pr-review.yml` + `.github/workflows/prompts/pr-review.md` (automated Claude Opus 5.5 High PR review, in-place auto-fix, self-healing label management, exact-commit CI gating against `CI`, squash-merge, and parent-story closure)
+**So that** I can collaborate with Claude Opus 5.5 directly on Issues/PRs and have every non-draft Pull Request automatically reviewed, fixed in place, verified against CI (`test-python` and `test-godot`) on the exact target commit SHA, and squash-merged without self-cancellation or missing-label failures.
 
 ---
 
-### BDD Acceptance Criteria (Given / When / Then)
+## 📐 Detailed Technical Specifications
+
+### 1. Interactive `@claude` Workflow (`.github/workflows/claude.yml`)
+
+Create `.github/workflows/claude.yml` matching `AntaresAndBharani/crosstrainingapp` and `AntaresAndBharani/darwin-trader`:
+
+```yaml
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code (Opus 5.5 High)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-opus-5-5 --effort high'
+          additional_permissions: |
+            actions: read
+```
+
+### 2. Automated PR Review, Auto-Fix & Squash-Merge Workflow (`.github/workflows/pr-review.yml`)
+
+Create `.github/workflows/pr-review.yml` with the following exact lifecycle guarantees:
+
+1. **Triggers & Concurrency**:
+   - `on.pull_request.types: [opened, synchronize, ready_for_review, reopened]`
+   - `on.workflow_dispatch.inputs.pr_number` (`required: true`, `type: string`)
+   - `concurrency`:
+     ```yaml
+     concurrency:
+       group: pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
+       cancel-in-progress: false
+     ```
+   - `permissions`: `contents: write`, `issues: write`, `pull-requests: write`, `id-token: write`, `actions: read`.
+   - `env`: `ROUND_CAP: 3`, `VERDICT_MARKER: "<!-- pr-review-verdict -->"`, `CI_WORKFLOW_NAME: "CI"`.
+
+2. **Step 1 — Pre-Flight Metadata, Loop Cap & `[skip pr-review]` Fast-Path (`id: meta`)**:
+   - Query `gh pr view "$PR_NUMBER" -R "$REPO" --json state,isDraft,headRefName,headRefOid,comments`.
+   - Emit `head_ref` and `head_sha` to `$GITHUB_OUTPUT`.
+   - If `STATE != "OPEN"` or `IS_DRAFT == "true"`, emit `skip=true`, `merge_only=false` and `exit 0`.
+   - Inspect commit message of `HEAD_SHA`:
+     - If `LAST_MSG` contains `"[skip pr-review]"`:
+       - Extract the last comment body containing `<!-- pr-review-verdict -->`.
+       - If `LAST_VERDICT_BODY` contains `"APPROVED"`, emit `skip=false` and `merge_only=true` (zero-token fast-path recovery) and `exit 0`.
+       - Otherwise emit `skip=true` and `merge_only=false` and `exit 0`.
+   - Count prior `<!-- pr-review-verdict -->` comments (`ROUNDS`). If `ROUNDS >= ROUND_CAP`:
+     - Idempotently ensure `status:needs-po-input` (`#B60205`), apply `status:needs-po-input` to the PR, post the escalation comment with `<!-- pr-review-verdict -->`, emit `skip=true`, `merge_only=false`, and `exit 0`.
+   - Otherwise emit `skip=false` and `merge_only=false`.
+
+3. **Step 2 & Step 3 — Checkout PR Branch & Fetch PR Context**:
+   - Guarded by `if: steps.meta.outputs.skip != 'true' && steps.meta.outputs.merge_only != 'true'`.
+   - Checkout `${{ steps.meta.outputs.head_ref }}` with `token: ${{ secrets.ORCHESTRATION_PAT || secrets.GITHUB_TOKEN }}` and `fetch-depth: 0`.
+   - Write `pr_meta.json` (`gh pr view "$PR_NUMBER" -R "$REPO" --json number,title,body,url,headRefName,baseRefName,comments > pr_meta.json`) and `pr_diff.txt` (`gh pr diff "$PR_NUMBER" -R "$REPO" > pr_diff.txt`).
+
+4. **Step 4 — Run PR Review & Auto-Fix (`id: claude`)**:
+   - Guarded by `if: steps.meta.outputs.skip != 'true' && steps.meta.outputs.merge_only != 'true'`.
+   - Uses `anthropics/claude-code-action@v1` with:
+     - `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`
+     - `github_token: ${{ secrets.ORCHESTRATION_PAT || secrets.GITHUB_TOKEN }}`
+     - `prompt`:
+       ```text
+       Read and follow all instructions in .github/workflows/prompts/pr-review.md.
+       Review the PR, automatically fix any code/test/scene/doc issues you find in the working tree, and write your final output to pr_review_output.json.
+       ```
+     - `claude_args: '--model claude-opus-5-5 --effort high --allowedTools "Read,Write,Edit,MultiEdit,Grep,Glob,Bash"'`
+     - `additional_permissions: actions: read`
+
+5. **Step 5 — Commit Auto-Fixes, Apply Verdict & Synchronize Self-Healing Labels (`id: verdict_step`)**:
+   - Guarded by `if: steps.meta.outputs.skip != 'true' && (steps.meta.outputs.merge_only == 'true' || (steps.claude.outcome == 'success' && hashFiles('pr_review_output.json') != ''))`.
+   - When `MERGE_ONLY == "true"`:
+     - Ensure `review:approved` (`#0E8A16`), remove `review:changes-requested` and `needs-refactor`, add `review:approved`, emit `verdict=APPROVED` and `current_sha=$INITIAL_SHA`, and `exit 0`.
+   - When `MERGE_ONLY != "true"`:
+     - Copy `pr_review_output.json` to `/tmp/pr_review_output.json` and remove temporary `pr_meta.json`, `pr_diff.txt`, `pr_review_output.json` before checking `git status --porcelain`.
+     - If working tree is dirty or `HEAD != INITIAL_SHA`, commit as `claude[bot]` with message `"fix(pr-review): apply Claude Opus 5.5 auto-fixes [skip pr-review]"` and push to `origin "HEAD:${HEAD_REF}"`.
+     - Record `CURRENT_SHA=$(git rev-parse HEAD)`.
+     - Execute inline Python script that:
+       - Defines `LABEL_META` for `review:approved`, `review:changes-requested`, `needs-refactor`, `status:needs-po-input`, `status:ready`, `status:done`, `dev-implemented`, and `tech-debt`, plus `ensure_label(repo, name)` (`gh label create ... --force`, `check=False`).
+       - Posts the `<!-- pr-review-verdict -->` comment on the PR.
+       - Creates any `followup_backlog_issues` (idempotently ensuring each label first).
+       - Updates PR labels:
+         - Removes `review:approved`, `review:changes-requested`, and `needs-refactor`.
+         - If `verdict == 'APPROVED'`: ensures and adds `review:approved`.
+         - If `verdict == 'CHANGES_REQUESTED'`: ensures and adds both `review:changes-requested` and `needs-refactor`.
+       - Appends `verdict` and `current_sha` to `$GITHUB_OUTPUT`.
+
+6. **Step 6 — Wait for CI on Target Commit & Squash-Merge (`id: merge_step`)**:
+   - Guarded by `if: steps.meta.outputs.skip != 'true' && steps.verdict_step.outputs.verdict == 'APPROVED'`.
+   - Polls `gh run list -R "$REPO" --commit "$CURRENT_SHA" -w "$CI_WORKFLOW_NAME" -L 1 --json status,conclusion -q '.[0] | "\(.status):\(.conclusion)"'` up to 60 times (10s interval = 10 minutes max).
+   - If `CI_PASSED != "true"`:
+     - Ensures `review:changes-requested` and `needs-refactor` labels, removes `review:approved`, adds `review:changes-requested` and `needs-refactor`, posts a diagnostic comment referencing `$CURRENT_SHA` and `$BUILD_STATUS`, and exits with code `1`.
+   - If `CI_PASSED == "true"` and `PR_STATE == "OPEN"`:
+     - Runs `gh pr merge "$PR_NUMBER" -R "$REPO" --squash --delete-branch`.
+
+7. **Step 7 — Close Parent Story When All Subtasks Are Complete (`id: close_story_step`)**:
+   - Guarded by `if: steps.meta.outputs.skip != 'true' && steps.verdict_step.outputs.verdict == 'APPROVED' && steps.merge_step.outcome == 'success'`.
+   - Extracts linked issue `#<SUBTASK>` from PR body (`close[sd]?|fixe?[sd]?|resolve[sd]?`).
+   - Resolves parent story via `gh api "repos/$REPO/issues/$SUBTASK/parent" -q .number`.
+   - Checks open sibling sub-issues via `gh api "repos/$REPO/issues/$STORY/sub_issues" -q '[.[] | select(.state=="open")] | length'`.
+   - When `OPEN_SIBLINGS == 0`, ensures `status:done` and `dev-implemented` labels, posts completion comment on `$STORY`, removes `status:ready` / `ready-for-dev`, adds `status:done` and `dev-implemented`, and closes `$STORY`.
+
+### 3. PR Review Prompt Specification (`.github/workflows/prompts/pr-review.md`)
+
+Create `.github/workflows/prompts/pr-review.md` tailored to **Retro Fighter** (`AntaresAndBharani/retro-fighter`):
+- Defines role as **PR Review & Auto-Fix Engineer (Claude Opus 5.5, High Effort)** for **Retro Fighter** (Godot 4.3 multi-mode arcade project: 2D Arcade Fighter & 3D Mob Control).
+- Documents context files (`pr_meta.json`, `pr_diff.txt`).
+- Specifies review responsibilities:
+  1. **Godot 4.3 Architecture & Deterministic Simulation (`scripts/`, `scenes/`)**:
+     - Verify clean scene/script boundaries across the Main Menu (`scenes/Menu.tscn`, `scripts/Menu.gd`), 2D Fighter (`scenes/Main.tscn`, `scripts/Main.gd`, `Fighter.gd`, `AIController.gd`, `Hitbox.gd`, `Hurtbox.gd`, `DynamicFightCamera.gd`, `HUD.gd`), and 3D Mob Control (`scenes/mob_control/MobControlMain.tscn`, `scripts/mob_control/MobControlMain.gd`, `Cannon3D.gd`, `MobUnit3D.gd`, `MultiplierGate3D.gd`, `GiantEnemy3D.gd`).
+     - Ensure deterministic frame simulation (`step(delta)` / `_physics_process(delta)`), proper node lifecycle management (`is_instance_valid()`, `queue_free()`, avoiding freed-node references), and strict GDScript static typing (`:=`, explicit parameter/return types) so Godot 4.3 headless mode never emits script compilation errors.
+  2. **Project Configuration & Audio Pipeline Integrity (`project.godot`, `audio/`, `docs/standards/audio-pipeline.md`)**:
+     - Ensure viewport settings (`384x224` base with `1152x672` window override in `project.godot`), physics layers, input actions, and audio bus layout (`default_bus_layout.tres`) remain intact unless explicitly targeted by the PR.
+  3. **Dual Test-Suite Parity (`tests/test_*.gd` & `tests/test_*.py`)**:
+     - Verify that changes to GDScript gameplay or scene contracts are reflected in both the Godot headless test suite (`tests/test_runner.gd`, `tests/test_*.gd`) and the Python static contract test suite (`tests/test_*.py`).
+     - Verify `CHANGELOG.md` (`## [Unreleased]`) is updated when appropriate.
+  4. **Run Lightweight Python Static Verification In-Place**:
+     - Do **not** install Godot inside this review job (full Godot 4.3 headless tests and Python unit tests run automatically in the parallel `CI` workflow and are polled on the exact commit SHA before merging).
+     - Always run `python3 -m unittest discover -s tests` to verify all Python static and configuration tests pass in the working tree.
+- Specifies in-place auto-fix rules (edit files directly in the working tree without running `git commit` or `git push`; the workflow commits and pushes `[skip pr-review]` and awaits `CI` on the exact commit SHA).
+- Specifies the required `pr_review_output.json` schema (`verdict`, `fixes_applied`, `summary`, `pr_comment_markdown`, `blocking_issues`, `followup_backlog_issues`).
+
+### 4. Static Workflow Regression Tests (`tests/test_claude_workflows.py`)
+
+Create `tests/test_claude_workflows.py` (auto-discovered by `python -m unittest discover -s tests`) asserting:
+1. `.github/workflows/claude.yml` exists, triggers on `issue_comment`, `pull_request_review_comment`, `issues`, and `pull_request_review` with `@claude` filter guards, sets required permissions (`contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, `actions: read`), uses `anthropics/claude-code-action@v1`, `secrets.CLAUDE_CODE_OAUTH_TOKEN`, and `--model claude-opus-5-5 --effort high`.
+2. `.github/workflows/pr-review.yml` exists, sets `cancel-in-progress: false` on `pr-review-${{ github.event.pull_request.number || inputs.pr_number }}`, sets `CI_WORKFLOW_NAME: "CI"`, implements `[skip pr-review]` and `merge_only=true` fast-path guards across setup/review steps, uses `anthropics/claude-code-action@v1` with `--model claude-opus-5-5 --effort high`, defines idempotent `ensure_label` (`gh label create ... --force`) for `review:approved`, `review:changes-requested`, `needs-refactor`, `status:needs-po-input`, `status:ready`, `status:done`, `dev-implemented`, and `tech-debt`, polls `$CI_WORKFLOW_NAME` strictly with `--commit "$CURRENT_SHA"` (`seq 1 60`, `CI_PASSED="true"`), squash-merges via `gh pr merge "$PR_NUMBER" -R "$REPO" --squash --delete-branch`, and includes `close_story_step`.
+3. `.github/workflows/prompts/pr-review.md` exists and specifies `pr_meta.json`, `pr_diff.txt`, `pr_review_output.json`, `"verdict": "APPROVED"`, `"CHANGES_REQUESTED"`, `"followup_backlog_issues"`, and `python3 -m unittest discover -s tests`.
+
+---
+
+## 🧪 Gherkin BDD Acceptance Criteria
 
 ```gherkin
-Feature: Always-On Auto-Fire Cannons, Uninterrupted Muzzle Volleys, and Aggressive Time-Escalating Enemy Waves
+Feature: Claude GitHub App Integration (Interactive @claude Mentions & Automated PR Review/Auto-Fix/Squash-Merge)
 
-  Scenario: GWT 1 - Always-On Automatic Firing Without Space or J Input
-    Given a MobControlMain instance running in GameState.PLAYING
-    When step(delta) executes over 1.0 second (60 ticks of 1/60s) with zero keyboard/action fire input pressed
-    Then Cannon3D automatically fires every 0.14s (producing 7 volleys in 1.0s)
-    And pressing or releasing KEY_SPACE or KEY_J does not stop or reset the cannon firing cadence
-    And UI/ControlsHint displays "A/D or ARROWS: STEER | ESC: MENU" without "SPACE: FIRE".
+  Scenario: Interactive @claude mention triggers Claude Opus 5.5 High workflow
+    Given `.github/workflows/claude.yml` is present in the repository
+    When a user creates an issue, issue comment, PR review, or PR review comment containing `@claude`
+    Then the `claude` job runs on `ubuntu-latest` with `contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, and `actions: read` permissions
+    And invokes `anthropics/claude-code-action@v1` with `CLAUDE_CODE_OAUTH_TOKEN` and `--model claude-opus-5-5 --effort high`
 
-  Scenario: GWT 2 - Uninterrupted Muzzle Volleys at MAX_MOBS Cap & Upper-Highway Despawning
-    Given a MobControlMain instance in survival_mode where 300 live Blue Mobs are already active on the highway (at MAX_MOBS = 300)
-    When the cannon auto-fire timer reaches 0.14s and emits shoot_requested
-    Then _recycle_furthest_blue_mob() recycles the furthest-downrange Blue Mob (lowest Z) and spawns the new cannon shot at the muzzle without pausing or dropping the shot
-    And any Blue Mob traveling past Z < -24.5 (SURVIVAL_CLEANUP_BOUND_Z) is immediately despawned during Phase 4 cleanup.
+  Scenario: Automated PR review approves and merges a PR (with or without in-place auto-fixes) without self-cancellation
+    Given an open non-draft Pull Request triggers `.github/workflows/pr-review.yml`
+    When Claude Opus 5.5 High reviews `pr_meta.json` and `pr_diff.txt`, optionally edits files in-place, runs `python3 -m unittest discover -s tests`, and writes `"verdict": "APPROVED"` to `pr_review_output.json`
+    Then any working-tree auto-fixes are committed and pushed with `[skip pr-review]` and the new `CURRENT_SHA` is recorded
+    And any resulting `synchronize` event does not cancel the active run (`cancel-in-progress: false`)
+    And the workflow idempotently ensures and applies `review:approved` (removing `review:changes-requested` and `needs-refactor`) and creates any `followup_backlog_issues`
+    And the workflow polls `CI` strictly matching `--commit "$CURRENT_SHA"` until `completed:success`
+    And the workflow squash-merges the PR, deletes the feature branch, and closes the parent story with `status:done` and `dev-implemented` if all sibling subtasks are closed
 
-  Scenario: GWT 3 - Aggressive Time-Escalating Soldier Horde (Wave Size, Frequency, & Soldier HP/Power)
-    Given a MobControlMain instance in survival_mode
-    When time_elapsed progresses from 0s to 36s to 90s
-    Then get_soldier_min_burst(time_elapsed) and get_soldier_max_burst(time_elapsed) increase strictly (reaching >= 6 min / >= 9 max at 36s and >= 9 min / >= 18 max at 90s)
-    And get_scaled_soldier_power(time_elapsed) increases from 1 at 0s to >= 3 at 36s and >= 7 at 90s
-    And spawned Red Soldiers have power (and hp) equal to get_scaled_soldier_power(time_elapsed), absorbing multiple points of bullet power during on_mob_clash().
+  Scenario: Zero-token merge_only recovery fast-path for approved [skip pr-review] commits
+    Given an open Pull Request whose `HEAD` commit message contains `[skip pr-review]`
+    And the most recent `<!-- pr-review-verdict -->` comment on the PR contains `APPROVED`
+    When `.github/workflows/pr-review.yml` is triggered via `synchronize` or `workflow_dispatch`
+    Then `steps.meta` outputs `merge_only=true` and skips branch checkout, diff fetch, and Claude Code execution (consuming 0 LLM tokens)
+    And the workflow ensures `review:approved` is applied, waits for `CI` on `HEAD_SHA` to succeed, and squash-merges the PR
 
-  Scenario: GWT 4 - Aggressive Time-Escalating Boss Waves (Frequency, Concurrent Cap, & Accelerated HP)
-    Given a MobControlMain instance in survival_mode
-    When time_elapsed progresses from 0s to 45s to 100s
-    Then get_max_concurrent_bosses(time_elapsed) increases from 1 (0s) to 3 (45s) to 5 (100s)
-    And get_scaled_boss_hp(time_elapsed) scales nonlinearly upward (e.g. > 450 HP at 36s and > 1500 HP at 90s)
-    And _step_survival_spawners(delta) spawns concurrent advancing Bosses at shorter intervals.
-
-  Scenario: GWT 5 - Paced Cannon & Bullet Power Progression in Survival Mode
-    Given a MobControlMain instance in survival_mode starting with 1 cannon and bullet_power == 1
-    When Blue Mobs pass through xN multiplier gates
-    Then unlocking each additional cannon (up to 5) requires accumulating CANNON_UNLOCK_CHARGE_THRESHOLD (12) gate hits rather than unlocking all 5 cannons in 4 single hits.
+  Scenario: CI failure or timeout on target commit transitions PR to review:changes-requested and needs-refactor
+    Given an open Pull Request has received `"verdict": "APPROVED"` at `CURRENT_SHA`
+    When the `CI` workflow run for `--commit "$CURRENT_SHA"` fails, is cancelled, or times out after 60 polling attempts
+    Then the workflow aborts the merge
+    And removes `review:approved`, idempotently ensures and applies both `review:changes-requested` and `needs-refactor`, posts a diagnostic comment referencing `CURRENT_SHA`, and exits with code 1
 ```
 
 ---
 
-### Component Impact Table
+## 🧩 INVEST Subtask Breakdown
 
-| File Path | Action | Description |
-|---|---|---|
-| `scripts/mob_control/Cannon3D.gd` | **Modify** | Add `@export var auto_fire: bool = true` (default `true`), remove `KEY_SPACE` / `KEY_J` / `mc_fire` / `p1_punch` manual fire dependency when `auto_fire` is active, and fire continuously every `0.14s`. |
-| `scripts/mob_control/MobControlMain.gd` | **Modify** | Add `SURVIVAL_CLEANUP_BOUND_Z = -24.5`, `_recycle_furthest_blue_mob()` so cannon muzzle shots never pause at `MAX_MOBS = 300`, `CANNON_UNLOCK_CHARGE_THRESHOLD = 12` for paced survival upgrades, and aggressive time-escalation formulas (`get_soldier_min_burst()`, `get_soldier_max_burst()`, `get_scaled_soldier_power()`, `get_max_concurrent_bosses()`, `get_scaled_boss_hp()`) in `_step_survival_spawners()`. |
-| `scenes/mob_control/MobControlMain.tscn` | **Modify** | Update `UI/ControlsHint` text to `"A/D or ARROWS: STEER | ESC: MENU"`. |
-| `tests/test_mob_control.gd` | **Modify** | Update controls hint assertions in Scenario 7, and expand Scenario 17 (or add Scenario 18) to verify GWT 1–5 (always-on auto-fire without Space, zero muzzle pause at 300-mob cap via downrange recycling, paced survival cannon unlocks, and aggressive Soldier/Boss wave & HP escalation). |
-| `tests/test_mob_control.py` | **Modify** | Update static contract checks for `ControlsHint`, `auto_fire`, `_recycle_furthest_blue_mob`, `get_soldier_min_burst`, `get_scaled_soldier_power`, and updated survival escalation constants. |
+- **Slice 1 (Standalone Task — Pattern A, $\le 5$ files): Integrate Claude GitHub App Workflows (`claude.yml`, `pr-review.yml`, `prompts/pr-review.md`) & Static Regression Tests (`tests/test_claude_workflows.py`)**
+  - Create `.github/workflows/claude.yml` for interactive `@claude` mentions across issues and pull requests.
+  - Create `.github/workflows/pr-review.yml` and `.github/workflows/prompts/pr-review.md` for automated Claude Opus 5.5 High PR review, in-place auto-fix, zero-token `merge_only` fast-path, self-healing label governance, exact-SHA `CI` polling, squash-merge, and parent-story closure.
+  - Create `tests/test_claude_workflows.py` and update `CHANGELOG.md` under `## [Unreleased]`.
 
 ---
 
-### INVEST Subtask Breakdown
+## ✅ Verification & Acceptance Gates
 
-- **Slice 1 (Standalone Task — Pattern A, $\le 350$ LOC, $\le 5$ files): Always-On Auto-Fire Cannons, Downrange Bullet Recycling, & Aggressive Time-Escalating Enemy Horde**
-  - Update `Cannon3D.gd` and `MobControlMain.tscn` so cannons fire automatically 100% of the time without `SPACE`/`J` and display `"A/D or ARROWS: STEER | ESC: MENU"`.
-  - Update `MobControlMain.gd` with `SURVIVAL_CLEANUP_BOUND_Z = -24.5`, `_recycle_furthest_blue_mob()` to guarantee uninterrupted muzzle volleys at `MAX_MOBS = 300`, paced survival cannon/power upgrades, and aggressive time-escalating Soldier & Boss waves (burst sizes, spawn intervals, Soldier HP/power scaling, and Boss HP/concurrency scaling).
-  - Update unit and contract tests in `tests/test_mob_control.gd` and `tests/test_mob_control.py`.
+1. `python -m unittest discover -s tests` — 100% passing Python test suite (including `tests/test_claude_workflows.py`).
+2. `godot --headless -s res://tests/test_runner.gd` — 100% passing Godot 4.3 headless engine test suite.
