@@ -121,6 +121,13 @@ class TestClaudeWorkflows(unittest.TestCase):
         self.assertIn("id: close_story_step", content)
         self.assertIn("sub_issues?per_page=100", content)
 
+        # Robustness guards: missing verdict fails loudly, auto-fix detection uses the checked-out
+        # commit, and a parentless subtask (gh api 404 body on stdout) is not mistaken for a story id.
+        self.assertIn("hashFiles('pr_review_output.json') == ''", content)
+        self.assertIn('echo "checkout_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"', content)
+        self.assertIn('"${CHECKOUT_SHA:-$INITIAL_SHA}"', content)
+        self.assertIn('if ! [[ "${STORY:-}" =~ ^[0-9]+$ ]]; then', content)
+
     def test_pr_review_prompt_exists_and_defines_schema_and_verification_rules(self):
         self.assertTrue(
             os.path.isfile(self.pr_review_prompt_path),
