@@ -32,14 +32,14 @@ pixel-art layout or engine foundation tests.
 ### III. Dual-Layer Automated Verification (NON-NEGOTIABLE)
 Every feature, slice, or bug fix MUST be verified by both automated test layers before completion:
 1. **Python Static & Contract Suite** (`python -m unittest discover -s tests`): Validates `.tscn` node
-   hierarchies, `.gd` script signatures and constants, mathematical invariants, and `project.godot`
-   settings.
+   hierarchies, `.gd` script signatures and constants, mathematical invariants, `project.godot`
+   settings, and CI/CD workflow & prompt contracts (`tests/test_claude_workflows.py`).
 2. **Godot 4.3 Headless Runtime Suite** (`godot --headless -s res://tests/test_runner.gd`): Validates
    in-engine runtime behavior and Given/When/Then (GWT) acceptance criteria across all registered test
    suites.
 
-**Rationale**: Static contract tests catch scene/script wiring drift in milliseconds, while headless
-Godot execution guarantees real engine runtime compliance without manual GUI intervention.
+**Rationale**: Static contract tests catch scene, script, and CI workflow wiring drift in milliseconds,
+while headless Godot execution guarantees real engine runtime compliance without manual GUI intervention.
 
 ### IV. Headless & Cold-Cache Execution Safety
 All GDScript files MUST parse, compile, and run cleanly in cold headless environments
@@ -117,6 +117,39 @@ where cannons shoot automatically at all times and the battlefield escalates rel
 aggressive time-based scaling of enemy numbers and durability ensures survival gameplay grows genuinely
 more challenging as time passes.
 
+### VIII. Automated Claude GitHub App Governance & Exact-SHA CI Gating
+Repository collaboration and Pull Request lifecycle automation MUST be governed by resilient,
+non-self-cancelling Claude Opus 5.5 High (`--model claude-opus-5-5 --effort high`) GitHub Actions
+workflows:
+- **Interactive `@claude` Mentions (`.github/workflows/claude.yml`)**: Mentions of `@claude` across
+  `issue_comment`, `pull_request_review_comment`, `pull_request_review`, and `issues` (`opened`,
+  `assigned`) MUST trigger `anthropics/claude-code-action@v1` with `CLAUDE_CODE_OAUTH_TOKEN` and
+  explicit `contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, and
+  `actions: read` permissions.
+- **Automated PR Review, In-Place Auto-Fix, & Squash-Merge (`.github/workflows/pr-review.yml` &
+  `.github/workflows/prompts/pr-review.md`)**:
+  - Concurrency MUST be scoped per PR (`pr-review-${{ github.event.pull_request.number || inputs.pr_number }}`)
+    with `cancel-in-progress: false` so `synchronize` events from `[skip pr-review]` auto-fix commits
+    never cancel an active review/merge run.
+  - Pre-flight metadata checks (`steps.meta`) MUST enforce a 3-round review cap (`ROUND_CAP: 3`,
+    escalating via `status:needs-po-input`) and provide a zero-LLM-token `merge_only=true` fast-path
+    whenever the `HEAD` commit contains `[skip pr-review]` and the latest `<!-- pr-review-verdict -->`
+    comment is `APPROVED`.
+  - The review runner MUST remain lightweight (without downloading or installing the Godot binary inside
+    `pr-review.yml`), executing `python3 -m unittest discover -s tests` in-place during review while
+    delegating full Godot headless verification to the `CI` workflow.
+  - All pipeline labels (`review:approved`, `review:changes-requested`, `needs-refactor`,
+    `status:needs-po-input`, `status:ready`, `status:done`, `dev-implemented`, `tech-debt`) MUST be
+    idempotently provisioned via `gh label create <name> -R "$REPO" --force` before application so
+    missing labels never crash workflow execution.
+  - Auto-merging (`gh pr merge --squash --delete-branch`) MUST be gated on polling the `CI` workflow
+    (`CI_WORKFLOW_NAME: "CI"`) strictly matching `--commit "$CURRENT_SHA"` (`CI_PASSED="true"`),
+    transitioning to `review:changes-requested` and `needs-refactor` if CI fails or times out, and
+    closing the parent story (`status:done`, `dev-implemented`) when all sibling subtasks are closed.
+
+**Rationale**: Preventing concurrency self-cancellation, provisioning labels idempotently, and gating
+squash-merges on the exact target commit SHA eliminate stranded Pull Requests and race conditions.
+
 ## Technical Stack & Engine Constraints
 
 - **Engine & Renderer**: Godot Engine 4.3 (`Forward Plus`), 60 Hz deterministic physics tick rate
@@ -143,7 +176,8 @@ more challenging as time passes.
   to opening or merging any Pull Request.
 - **Changelog & Branch Hygiene**: Every change MUST be developed on a dedicated `feat/[task-summary]`
   branch, documented under `## [Unreleased]` in `CHANGELOG.md` following the Keep a Changelog format,
-  and verified against remote GitHub Actions CI checks (`test-python` and `test-godot`).
+  and verified against remote GitHub Actions CI checks (`test-python` and `test-godot`) and automated
+  Claude PR review (`pr-review.yml`).
 
 ## Governance
 
@@ -159,6 +193,6 @@ repository and supersedes conflicting ad-hoc practices.
   - `PATCH`: Wording clarifications, formatting fixes, or non-semantic refinements.
 - **Compliance Review**: Every feature specification (`/speckit-specify`), implementation plan
   (`/speckit-plan`), task list (`/speckit-tasks`), and code implementation (`/speckit-implement`) MUST
-  verify compliance with Principles I–VII before merge.
+  verify compliance with Principles I–VIII before merge.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
+**Version**: 1.4.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
