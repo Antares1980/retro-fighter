@@ -86,6 +86,7 @@ func run_all(p_tree: SceneTree = null) -> bool:
 	test_scenario_14_gate_spread_hires_viewport_and_road_scroller()
 	test_scenario_15_multi_cannon_squad_and_bullet_power_progression()
 	test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx()
+	test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction()
 
 	print("\n=== Mob Control Test Results: %d passed, %d failed ===" % [passed, failed])
 	return failed == 0
@@ -1943,7 +1944,8 @@ func test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx() -> 
 	# =========================================================================
 	# PART 1: GWT 1 - Automatic Stage 1 Initialization & Multi-Wave Progression
 	# =========================================================================
-	assert_equal(main.current_stage_index, 0, "GWT 1: _ready() automatically initializes Stage 1 (index 0)")
+	main.init_stage(0)
+	assert_equal(main.current_stage_index, 0, "GWT 1: init_stage(0) initializes Stage 1 (index 0)")
 	assert_equal(main.giant_enemy.hp, 1200, "GWT 1: Stage 1 Base HP initialized to 1200 on _ready()")
 	assert_equal(main.current_wave, 1, "GWT 1: Stage 1 starts at Wave 1")
 	assert_equal(main.total_waves_in_stage, 3, "GWT 1: Stage 1 has 3 total waves")
@@ -2071,6 +2073,164 @@ func test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx() -> 
 	# Advancing to next stage restores Boss visibility
 	main.advance_stage()
 	assert_true(main.giant_enemy.visible, "GWT 5: Advancing to next stage restores Giant Boss visibility")
+
+	main.cleanup_stage_entities()
+	if active_tree != null:
+		active_tree.root.remove_child(main)
+	main.free()
+
+
+func test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction() -> void:
+	print("\nScenario 17: Endless Survival Phase, Scrolling/Respawning Gates, Boss Gate Destruction, & Escalating Spawners (Spec 003 / GWT 1-5)")
+	var active_tree = _get_tree()
+	var main = MobControlMainScene.instantiate()
+	if active_tree != null:
+		active_tree.root.add_child(main)
+
+	# =========================================================================
+	# PART 1: GWT 1 - Single Endless Survival Phase & Non-Halting Boss Defeat
+	# =========================================================================
+	assert_true(main.survival_mode, "GWT 1: _ready() initializes survival_mode == true by default")
+	assert_true(main.dynamic_gates_enabled, "GWT 1: _ready() initializes dynamic_gates_enabled == true")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 1: Initial state is PLAYING")
+	assert_equal(main.active_obstacles.size(), 0, "GWT 1: No static roadblocks in Survival Mode")
+	assert_true(main.active_bosses.size() >= 1, "GWT 1: Initial advancing Boss spawned in active_bosses")
+	assert_equal(main.bosses_defeated, 0, "GWT 1: Initial bosses_defeated == 0")
+	assert_equal(main.soldiers_defeated, 0, "GWT 1: Initial soldiers_defeated == 0")
+	if main.wave_status_label != null:
+		assert_true(main.wave_status_label.text.contains("SURVIVAL TIME: 00:00 | BOSSES: 0 | KILLS: 0"), "GWT 1: HUD displays SURVIVAL TIME: 00:00 | BOSSES: 0 | KILLS: 0")
+
+	# Defeat the advancing Boss -> explodes, disappears, increments bosses_defeated, keeps state == PLAYING
+	var first_boss: GiantEnemy3D = main.active_bosses[0]
+	assert_true(first_boss.is_lane_boss, "GWT 1: Advancing Boss has is_lane_boss == true")
+	assert_true(first_boss.speed > 0.0, "GWT 1: Advancing Boss has forward speed > 0.0")
+	first_boss.hp = 5
+	var fx_before_boss: int = main.active_destruction_fx.size()
+	var boss_z: float = first_boss.global_position.z if main.is_inside_tree() else first_boss.position.z
+	var boss_x: float = first_boss.global_position.x if main.is_inside_tree() else first_boss.position.x
+	var _b_kill = main._spawn_blue_mob(Vector3(boss_x, 1.25, boss_z), {}, 5)
+	main._resolve_boss_contacts()
+	assert_equal(main.bosses_defeated, 1, "GWT 1: Defeating advancing Boss increments bosses_defeated to 1")
+	assert_equal(main.active_bosses.size(), 0, "GWT 1: Defeated Boss removed from active_bosses")
+	assert_true(main.active_destruction_fx.size() > fx_before_boss, "GWT 1: Defeated Boss spawns 3D explosion debris FX")
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 1: Defeating Boss does NOT end phase; state remains PLAYING")
+	if main.victory_banner != null:
+		assert_false(main.victory_banner.visible, "GWT 1: Victory/Stage Clear banner remains hidden after Boss kill")
+
+	# =========================================================================
+	# PART 2: GWT 2 - Dynamic Scrolling, Despawning, & Respawning xN and +N Gates
+	# =========================================================================
+	main.init_survival_phase()
+	var initial_gates: Array = main.get_all_gates()
+	assert_true(initial_gates.size() >= 4, "GWT 2: At least 4 moving gates active at start of survival phase")
+	var sample_gate: MultiplierGate3D = initial_gates[0]
+	assert_true(sample_gate.move_enabled, "GWT 2: Active gate has move_enabled == true")
+	assert_true(sample_gate.scroll_speed > 0.0, "GWT 2: Active gate has scroll_speed > 0.0")
+
+	var gate_z_before: float = sample_gate.position.z
+	main.step(1.0 / 60.0)
+	assert_true(sample_gate.position.z > gate_z_before, "GWT 2: Gate advances forward (+Z) toward player during step()")
+
+	# Verify bottom-of-screen despawning when Z >= GATE_DESPAWN_Z (8.2)
+	sample_gate.position.z = 8.25
+	main.step(1.0 / 60.0)
+	assert_true(not is_instance_valid(sample_gate) or sample_gate.is_queued_for_deletion(), "GWT 2: Gate reaching Z >= 8.2 despawns and is freed")
+
+	# Verify continuous gate respawning in upper highway (Z <= -14.0)
+	var spawned_gate: MultiplierGate3D = main.spawn_random_gate()
+	assert_true(is_instance_valid(spawned_gate), "GWT 2: spawn_random_gate() instantiates a new MultiplierGate3D")
+	assert_true(spawned_gate.position.z <= -14.0, "GWT 2: Newly spawned gate placed in upper highway (Z <= -14.0)")
+	assert_true(spawned_gate.position.x >= -3.2 and spawned_gate.position.x <= 3.2, "GWT 2: Newly spawned gate X is within [-3.2, 3.2]")
+	assert_true(spawned_gate.operation == "+" or spawned_gate.operation == "x", "GWT 2: Newly spawned gate has valid '+' or 'x' operation")
+	assert_true(spawned_gate.value >= 2, "GWT 2: Newly spawned gate has value >= 2")
+	assert_true(spawned_gate.move_enabled, "GWT 2: Newly spawned gate has move_enabled == true")
+
+	# Verify horizontal oscillation stays clamped within [-3.2, 3.2]
+	spawned_gate.osc_enabled = true
+	spawned_gate.osc_base_x = 3.0
+	spawned_gate.osc_amplitude = 1.5
+	spawned_gate.osc_speed = 3.0
+	for _i in range(30):
+		spawned_gate.step_gate(1.0 / 60.0)
+		assert_true(spawned_gate.position.x >= -3.201 and spawned_gate.position.x <= 3.201, "GWT 2: Oscillating gate X stays clamped within [-3.2, 3.2]")
+
+	# =========================================================================
+	# PART 3: GWT 3 - Advancing Bosses Destroy xN and +N Blocks on Contact
+	# =========================================================================
+	main.init_survival_phase()
+	main.cleanup_all_mobs()
+	var test_gate: MultiplierGate3D = main.spawn_random_gate()
+	test_gate.position = Vector3(-2.0, 1.0, -6.0)
+	test_gate.osc_enabled = false
+
+	var crusher_boss: GiantEnemy3D = main.spawn_boss(400, Vector3(-2.0, 1.25, -6.0), MobControlMainScript.BOSS_BASE_SPEED)
+	assert_true(crusher_boss.speed > test_gate.scroll_speed, "GWT 3: Advancing Boss speed (%.2f) > Gate scroll speed (%.2f)" % [crusher_boss.speed, test_gate.scroll_speed])
+
+	var fx_before_crush: int = main.active_destruction_fx.size()
+	main._resolve_boss_gate_destruction()
+
+	assert_true(not is_instance_valid(test_gate) or test_gate.is_queued_for_deletion(), "GWT 3: Advancing Boss destroys overlapped xN/+N gate on contact")
+	assert_true(main.active_destruction_fx.size() > fx_before_crush, "GWT 3: Boss destroying gate spawns 3D shatter debris FX")
+	assert_true(is_instance_valid(crusher_boss) and not crusher_boss.is_queued_for_deletion(), "GWT 3: Boss survives gate destruction and continues marching")
+	assert_equal(crusher_boss.hp, 400, "GWT 3: Boss HP is unaffected by crushing a gate")
+
+	# =========================================================================
+	# PART 4: GWT 4 - Randomized & Time-Escalating Soldier and Boss Spawners
+	# =========================================================================
+	assert_equal(main.get_soldier_max_burst(0.0), 2, "GWT 4: Soldier max burst at t=0s is 2")
+	assert_true(main.get_soldier_max_burst(90.0) >= 6, "GWT 4: Soldier max burst escalates to >= 6 at t=90s")
+	assert_equal(main.get_max_concurrent_bosses(0.0), 1, "GWT 4: Max concurrent bosses at t=0s is 1")
+	assert_equal(main.get_max_concurrent_bosses(35.0), 2, "GWT 4: Max concurrent bosses at t=35s is 2")
+	assert_equal(main.get_max_concurrent_bosses(75.0), 3, "GWT 4: Max concurrent bosses at t=75s is 3")
+	assert_equal(main.get_max_concurrent_bosses(125.0), 4, "GWT 4: Max concurrent bosses at t=125s is 4")
+	assert_true(main.get_scaled_boss_hp(90.0) > main.get_scaled_boss_hp(0.0), "GWT 4: Boss HP scales up with survival time_elapsed")
+
+	# Step survival spawners at t = 65.0s and verify multiple soldiers and bosses spawn in valid lanes
+	main.init_survival_phase()
+	main.cleanup_all_mobs()
+	main.time_elapsed = 65.0
+	main.soldier_spawn_timer = 10.0
+	main.boss_spawn_timer = 20.0
+	main._step_survival_spawners(1.0 / 60.0)
+	assert_true(main.red_mobs.size() >= 1, "GWT 4: Soldier spawner spawns soldiers in highway")
+	for r_unit in main.red_mobs:
+		assert_true(r_unit.position.x >= -3.801 and r_unit.position.x <= 3.801, "GWT 4: Spawned soldier X within [-3.8, 3.8]")
+	assert_true(main.active_bosses.size() >= 2, "GWT 4: At t=65s, Boss spawner spawns a 2nd concurrent advancing Boss")
+	for b_unit in main.active_bosses:
+		assert_true(b_unit.position.x >= -2.801 and b_unit.position.x <= 2.801, "GWT 4: Spawned Boss X within [-2.8, 2.8]")
+
+	# =========================================================================
+	# PART 5: GWT 5 - Survival Defeat on Breach (Soldier or Boss) & Full Reset
+	# =========================================================================
+	# Test Boss breach at Z >= 9.0 triggers DEFEAT and shows survival summary
+	main.init_survival_phase()
+	main.time_elapsed = 42.5
+	main.bosses_defeated = 3
+	var breaching_boss: GiantEnemy3D = main.active_bosses[0]
+	breaching_boss.position.z = 9.05
+	main.step(1.0 / 60.0)
+
+	assert_equal(main.state, MobControlMainScript.GameState.DEFEAT, "GWT 5: Boss reaching Z >= 9.0 triggers DEFEAT")
+	if main.defeat_banner != null:
+		assert_true(main.defeat_banner.visible, "GWT 5: DefeatBanner is visible on breach")
+		assert_true(main.defeat_banner.text.contains("SURVIVED: 00:42"), "GWT 5: DefeatBanner displays formatted survival time (00:42)")
+		assert_true(main.defeat_banner.text.contains("BOSSES DEFEATED: 3"), "GWT 5: DefeatBanner displays bosses defeated count (3)")
+
+	# Pressing fresh non-echo KEY_R resets survival phase cleanly
+	var ev_retry_survival = InputEventKey.new()
+	ev_retry_survival.pressed = true
+	ev_retry_survival.echo = false
+	ev_retry_survival.keycode = KEY_R
+	main._unhandled_input(ev_retry_survival)
+
+	assert_equal(main.state, MobControlMainScript.GameState.PLAYING, "GWT 5: Pressing R on DEFEAT restarts Survival Phase in PLAYING state")
+	assert_true(main.survival_mode, "GWT 5: survival_mode remains true after retry")
+	assert_equal(main.time_elapsed, 0.0, "GWT 5: time_elapsed reset to 0.0")
+	assert_equal(main.bosses_defeated, 0, "GWT 5: bosses_defeated reset to 0")
+	assert_equal(main.soldiers_defeated, 0, "GWT 5: soldiers_defeated reset to 0")
+	assert_equal(main.get_cannon_count(), 1, "GWT 5: Cannon count reset to 1")
+	assert_equal(main.get_bullet_power(), 1, "GWT 5: Bullet power reset to 1")
+	assert_true(main.get_all_gates().size() >= 4, "GWT 5: Baseline scrolling gates restored on survival reset")
 
 	main.cleanup_stage_entities()
 	if active_tree != null:

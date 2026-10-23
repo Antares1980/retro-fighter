@@ -400,5 +400,48 @@ class TestMobControl(unittest.TestCase):
         self.assertIn("giant_enemy.visible = false", self.main_script)
         self.assertIn("test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx", self.test_gd)
 
+    def test_endless_survival_dynamic_gates_and_boss_destruction_contract(self):
+        """Spec 003 / GWT 1-5: Verify endless survival phase, moving/despawning/respawning gates, boss gate destruction, and random time-escalating spawners."""
+        # US1: Endless Single-Phase Survival Loop
+        self.assertIn("var survival_mode: bool = true", self.main_script)
+        self.assertIn("var time_elapsed: float = 0.0", self.main_script)
+        self.assertIn("var bosses_defeated: int = 0", self.main_script)
+        self.assertIn("var soldiers_defeated: int = 0", self.main_script)
+        self.assertIn("func init_survival_phase()", self.main_script)
+        self.assertIn("func _format_survival_time(", self.main_script)
+        self.assertIn("SURVIVAL TIME:", self.main_script)
+
+        # US2: Dynamic Moving, Despawning, & Respawning xN and +N Gates
+        self.assertIn("var scroll_speed: float = 1.8", self.gate_script)
+        self.assertIn("var move_enabled: bool", self.gate_script)
+        self.assertIn("func step_gate(delta: float)", self.gate_script)
+        self.assertIn("const GATE_SCROLL_SPEED: float = 1.8", self.main_script)
+        self.assertIn("const GATE_DESPAWN_Z: float = 8.2", self.main_script)
+        self.assertIn("const GATE_SPAWN_Z: float = -16.5", self.main_script)
+        self.assertIn("func spawn_random_gate(", self.main_script)
+        self.assertIn("func _ensure_baseline_gates(", self.main_script)
+
+        # US3: Advancing Bosses That Destroy xN and +N Blocks
+        self.assertIn("var is_lane_boss: bool = false", self.giant_script)
+        self.assertIn("const BOSS_BASE_SPEED: float = 2.6", self.main_script)
+        self.assertIn("const BOSS_HALF_WIDTH: float = 1.55", self.main_script)
+        self.assertIn("var active_bosses: Array[Node3D]", self.main_script)
+        self.assertIn("func spawn_boss(", self.main_script)
+        self.assertIn("func _resolve_boss_gate_destruction()", self.main_script)
+        self.assertIn("func on_boss_destroy_gate(", self.main_script)
+        self.assertIn("func _resolve_boss_contacts()", self.main_script)
+        self.assertIn("func on_mob_hit_boss(", self.main_script)
+
+        # US4: Randomized & Time-Escalating Soldier and Boss Spawners
+        self.assertIn("const SOLDIER_BASE_INTERVAL: float = 1.4", self.main_script)
+        self.assertIn("const SOLDIER_MIN_INTERVAL: float = 0.28", self.main_script)
+        self.assertIn("const BOSS_BASE_INTERVAL: float = 14.0", self.main_script)
+        self.assertIn("const BOSS_MIN_INTERVAL: float = 5.5", self.main_script)
+        self.assertIn("func _step_survival_spawners(delta: float)", self.main_script)
+        self.assertIn("func get_soldier_max_burst(", self.main_script)
+        self.assertIn("func get_max_concurrent_bosses(", self.main_script)
+        self.assertIn("func get_scaled_boss_hp(", self.main_script)
+        self.assertIn("test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction", self.test_gd)
+
 if __name__ == "__main__":
     unittest.main()

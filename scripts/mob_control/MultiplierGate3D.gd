@@ -3,7 +3,8 @@ extends Area3D
 
 ## Math modifier gate for Mob Control 3D.
 ## Replicates passing Blue mobs based on addition (+) or multiplication (x).
-## Supports Destructible Vaults (blockading high-yield gates) and Two-Way Evolution Gates.
+## Supports Destructible Vaults (blockading high-yield gates), Two-Way Evolution Gates,
+## and dynamic forward highway scrolling (+Z) with optional horizontal lane oscillation.
 
 enum GateMode { NORMAL, EVOLUTION, VAULT }
 
@@ -17,6 +18,14 @@ const MAX_EVOLUTION_LEVEL: int = MAX_LEVEL
 @export var operation: String = "+"
 @export var value: int = 2
 @export var gate_mode: GateMode = GateMode.NORMAL
+@export var scroll_speed: float = 1.8
+@export var move_enabled: bool = true
+
+var osc_enabled: bool = false
+var osc_base_x: float = 0.0
+var osc_amplitude: float = 1.4
+var osc_speed: float = 1.8
+var osc_time: float = 0.0
 
 # Vault blockade support
 @export var is_locked: bool = false
@@ -158,3 +167,10 @@ func _recalculate_evolution() -> void:
 	value = level
 	operation = "+"
 	update_label()
+
+func step_gate(delta: float) -> void:
+	if move_enabled and scroll_speed > 0.0:
+		position.z += scroll_speed * delta
+	if osc_enabled:
+		osc_time += delta
+		position.x = clampf(osc_base_x + sin(osc_time * osc_speed) * osc_amplitude, -3.2, 3.2)

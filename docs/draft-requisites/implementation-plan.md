@@ -1,168 +1,185 @@
-# 📋 Implementation Plan & Refinement Lifecycle: Mob Control 3D — Multi-Wave Extended Phases, Highway Obstacles, 3D Articulated Enemy Forms, & Destruction Animations
+# 📋 Implementation Plan & Refinement Lifecycle: Mob Control 3D — Single Endless Survival Phase, Dynamic Scrolling & Respawning Gates, Gate-Crushing Bosses, & Escalating Random Enemy Waves
 
 ## 📝 Initial Draft Proposal
 
 User Request (`/grill-me`):
-> "I want you to help me to define a new requirement. Phases must be much much much more longer. Add more obtacles and the enemies must have a form, not only be a ball. When a wall or something big is hit and "destroyed", add an animation. After that the enemy, wall, ... must dissapear from the screen."
+> "I want to write a new requisite. The enemies must go forward. Now they are a bit static. So the escenario must change to be more dymanic. xN and +N blocks must move and disapear when they reach the bottom of the screen, apeearing more of them. Enemies must come and if they are "bosses" they must to "destroy" the xN and +N blocks as well. Add more. I want enemies to come in a random way. Appearing more a more "soldiers" with the time. Similar for the bosses. Let's have just one phase for now. The purpose of the phase is to stay there the more time possible."
 
 ### Clarified Design Decisions (Operator `/grill-me` Interview Consensus)
 
-1. **Multi-Wave Extended Phase Progression (~2–3+ Minutes per Stage) & Power Rebalancing:**
-   - **Root Cause Identified:**
-     1. `MobControlMain._ready()` did not invoke `init_stage(0)`, leaving Stage 1 with the `.tscn` default `150` HP Boss at `Z = -15.0`.
-     2. Every single bullet passing an `xN` gate immediately added `+N` to `bullet_power` with no charge threshold or cap, causing `bullet_power` to snowball to `479+` within seconds (yielding `5 cannons * 479 = 2,395` damage per volley) and melting stages almost instantly.
-     3. Stages had no intermediate waves or defensive obstacle lines protecting the highway before the Final Boss defeat.
-   - **Agreed Solution:**
-     - Initialize `init_stage(0)` automatically in `_ready()` so Stage 1 always starts with its full stage configuration.
-     - Structure each of the 5 Stages into a **Multi-Wave Highway Progression** (e.g., 3 to 5 progressive waves per stage, displayed in the HUD as `STAGE X/5 | WAVE Y/Z`).
-     - Hold/fortify the Giant Mech Boss at the back of the highway (shielded/armored by frontline wave defenses and marching at a deliberate pace) until all intermediate obstacle & raider waves in the stage are cleared, then unleash the Final Boss 3-Act Shield Lock showdown.
-     - Rebalance `bullet_power` progression after unlocking cannons and initial power tiers (`bullet_power >= 6`) using a progressive **Gate-Charge Threshold** (`GATE_CHARGE_PER_POWER_TIER`) and a balanced cap (`MAX_BULLET_POWER = 25`), preventing runaway 400+ bullet power while keeping all existing unit test contracts (`test_scenario_15`) 100% intact.
+1. **Single Endless Survival Phase ("Stay Alive as Long as Possible"):**
+   - **Decision:** Replace the multi-stage stop-and-go campaign flow during normal gameplay with a **single continuous Endless Survival Phase** (`survival_mode = true` by default).
+   - **Gameplay Loop:**
+     - Killing a Boss does **not** pause or end the phase with a `STAGE CLEAR!` banner; instead, the Boss shatters in a 3D explosion, disappears from the screen, increments the player's Bosses Defeated counter, and combat continues non-stop.
+     - The HUD displays a live **Survival Timer** (`TIME: MM:SS.d`), **Threat / Escalation Level**, **Bosses & Soldiers Defeated**, and **Cannons / Bullet Power**.
+     - The phase only ends (`GameState.DEFEAT`) when any enemy **Soldier** or **Boss** breaches the player's cannon line (`Z >= 9.0`), displaying the player's final Survival Time and stats on the Defeat banner with instant restart (`R` / `SPACE` / `ENTER`).
 
-2. **Three-Category Highway Obstacle System:**
-   - Populate each stage wave with a rich combination of three obstacle types across the highway lanes (`X in [-4.5, +4.5]`, `Z in [-3.5, -13.5]`):
-     1. **Destructible HP Walls / Barricades (`OBSTACLE_WALL`):** Segmented 3D reinforced brick/armor walls with live `HP: N` 3D labels and health bars that block lanes and absorb player shots until destroyed.
-     2. **Moving / Sliding Armored Blocks & Pillars (`OBSTACLE_MOVING`):** Heavy armored 3D barriers that oscillate horizontally (`X`) across lanes during `step(delta)`, forcing the player to actively steer their cannon squad.
-     3. **Active Gate Vaults & Hazard Barriers (`OBSTACLE_HAZARD` & `Vaults`):** Automatic per-stage Gate Vaults locking high-yield gates (`auto_spawn_vaults = true` during stage layout) plus dark-red spiked Hazard Barriers that sap/consume incoming projectiles on contact until shattered.
+2. **Dynamic Moving, Despawning, & Respawning `xN` and `+N` Gates (`MultiplierGate3D`):**
+   - **Decision:** `xN` and `+N` multiplier blocks are no longer frozen at fixed coordinates.
+   - **Gate Kinematics & Lifecycle:**
+     - All `xN` and `+N` gates continuously move forward (`+Z`) down the highway toward the bottom of the screen (`GATE_SCROLL_SPEED`, e.g., `1.8` units/s), with a random subset of spawned gates also oscillating horizontally (`X`) across lanes as they scroll down.
+     - When any gate reaches the bottom of the screen / cannon line (`Z >= GATE_DESPAWN_Z = 8.2`), it disappears (`queue_free()`) and is pruned.
+     - New randomized `+N` (e.g., `+2`, `+3`, `+4`, `+5`) and `xN` (e.g., `x2`, `x3`, `x4`) gates continuously spawn in the upper/mid highway (`Z in [-18.0, -14.0]`, random lane `X in [-2.8, +2.8]`) so the player always has a dynamic, ever-changing stream of modifier blocks moving down the road.
 
-3. **Articulated 3D Enemy & Boss Forms (No More Plain Balls or Flat Bricks):**
-   - **Red Enemy Units (`MobUnit3D` when `team == "red"`):** Replace the plain red capsule/ball look with a composite **3D Humanoid/Robot Raider** silhouette built from child `MeshInstance3D` primitives (`Head`, glowing `Visor`, armored `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`) that performs a deterministic marching stride/arm-swing animation as it advances down `+Z`.
-   - **Blue Player Projectiles (`MobUnit3D` when `team == "blue"`):** Retain crisp high-energy sphere/bolt visuals that scale and glow with `power`.
-   - **Giant Boss, Shield Pylons, & Vaults (`GiantEnemy3D`):** Replace the plain flat yellow box with a composite **3D Armored Mech / Fortress** model (`CoreChassis`, `MechHead` with glowing `VisorEye`, `LeftPauldron`, `RightPauldron`, twin `ShoulderCannons`, and energy core accents for Pylons/Vaults).
+3. **All Enemies Actively Advance Forward + Bosses Crush `xN` and `+N` Gates:**
+   - **Decision:** Remove stationary highway obstacles (`WALL`, `HAZARD`, `MOVING_BLOCK` with `speed = 0.0`) and static shield-locked backline bosses from the survival loop. Every enemy on the highway actively advances forward (`+Z`) toward the player.
+   - **Lane-Marching Bosses & Gate Destruction:**
+     - Bosses (`GiantEnemy3D` tracked in `active_bosses: Array[GiantEnemy3DScript]`) are lane-sized 3D Armored Mechs (`half_width = 1.5`, total width `~3.0` units) that spawn in random lanes at the top of the highway (`Z = -24.0`, `X in [-3.0, +3.0]`) and march steadily forward (`+Z`) at a speed faster than the drifting gates (`BOSS_SPEED = 2.6..3.6` units/s > `GATE_SCROLL_SPEED = 1.8` units/s).
+     - **Boss Gate Destruction:** Whenever an advancing Boss collides with / overlaps any `xN` or `+N` gate (`MultiplierGate3D`), the Boss **crushes and destroys** that gate—spawning a 3D shatter debris burst (`_spawn_destruction_fx`) at the gate's position and immediately removing the gate (`queue_free()`) from the screen. Players must focus fire to kill Bosses before they stomp through valuable multiplier gates!
 
-4. **Hit Feedback, 3D Shatter/Explosion Destruction Animation, & Complete Screen Disappearance:**
-   - **Root Cause Identified:** In `MobControlMain._evaluate_game_state()`, when `giant_enemy.hp <= 0`, the game transitioned to `STAGE_CLEAR` / `VICTORY` without hiding or destroying `giant_enemy`, leaving a giant yellow brick reading `HP: 0` sitting in the middle of the screen (as shown in the user's screenshot). Similarly, Vaults and Pylons vanished without any visual destruction animation.
-   - **Agreed Solution:**
-     - **On Hit (`take_damage`):** Trigger an immediate emissive white/orange hit-flash and micro-shake/recoil on the struck 3D model (`GiantEnemy3D`, Wall, Moving Block, Pylon, Vault).
-     - **On Destruction (`HP <= 0`):** Immediately disable collision and remove the entity from active gameplay arrays (`active_obstacles`, `active_vaults`, `active_pylons`) so bullets pass through cleanly, spawn a self-animating **3D Shatter/Explosion Burst** (`DestructionFX3D`: 8–16 flying 3D debris fragments with outward velocity, rotation, and gravity + expanding core flash + rapid scale collapse over `~0.45s`), and **completely hide/remove the entity from the screen** (`visible = false` for `giant_enemy` upon `hp <= 0` and restored in `reset()`, and `queue_free()` for walls, obstacles, pylons, vaults, and defeated enemies).
+4. **Randomized Spawning & Continuous Time-Based Escalation (Soldiers & Bosses):**
+   - **Decision:** Both **Soldiers** (`MobUnit3D` red 3D robot raiders) and **Bosses** (`GiantEnemy3D` 3D armored mechs) spawn randomly across highway lanes with intensity scaling continuously with `survival_time` (`time_elapsed`):
+     - **Soldiers Escalation:**
+       - Spawn at random `X in [-4.2, +4.2]` at `Z = -23.0`.
+       - As `time_elapsed` grows, the randomized spawn interval shrinks (e.g., from `1.4s` down to `0.22s`) and the squad burst size per spawn event grows (from `1–2` soldiers early on to `3–8+` staggered soldiers per wave later), flooding the highway with advancing raiders.
+     - **Bosses Escalation:**
+       - Spawn at random `X in [-3.0, +3.0]` at `Z = -24.0`.
+       - As `time_elapsed` grows, the Boss spawn interval shortens (e.g., from `10.0s` down to `3.5s`), Boss HP scales upward with elapsed time (`base_boss_hp + int(time_elapsed * hp_growth_rate)`), and the cap on simultaneous active Bosses increases (`1 -> 2 -> 3 -> 4+`), allowing multiple Bosses to march down different lanes at once.
 
 ---
 
 ## 🎯 Final Decision Plan & User Story Specification
 
 - **Resolution Type:** Consensus Agreement (Operator `/grill-me` Interview)
-- **User Story:** As a player of **Mob Control 3D**, I want stages to feature extended multi-wave highway progression with balanced weapon power scaling, diverse destructible and moving 3D obstacles, articulated 3D robot/mech enemy silhouettes instead of plain balls/bricks, and visceral hit-flash and 3D shatter/explosion animations that completely remove destroyed walls, obstacles, enemies, and bosses from the screen so that every phase feels like a substantial, visually rich arcade battle.
+- **User Story:** As a player of **Mob Control 3D**, I want a single dynamic Endless Survival Phase where `xN` and `+N` multiplier gates continuously scroll down the highway, disappear at the bottom, and respawn from the top; where all enemies (3D Robot Soldiers and lane-marching 3D Mech Bosses) actively advance forward in randomized, time-escalating waves; and where advancing Bosses shatter and destroy any `xN` or `+N` gate in their path, so that the battlefield is constantly in motion and challenges me to survive for the longest time possible.
 
 ### Architecture & Data Flow
 
 ```mermaid
 flowchart TD
-    subgraph StageWaveLifecycle["1. Multi-Wave Extended Stage Progression"]
-        Ready["_ready() -> init_stage(0)"] --> WaveInit["Initialize Stage Config & Wave 1/N\nSpawn Wave Obstacles (Walls, Moving Blocks, Hazards) & Gate Vault"]
-        WaveInit --> WaveCombat["Player fights through Wave Y/N\nBoss fortified in backline while active wave obstacles/raiders remain"]
-        WaveCombat --> WaveClear{"All Wave Y Obstacles Destroyed\n& Wave Timer Elapsed?"}
-        WaveClear -->|More Waves| NextWave["Advance to Wave Y+1/N\nSpawn next Obstacle Formation & Raider Squad"]
-        WaveClear -->|Final Wave Reached| BossAssault["Unfortify Giant Mech Boss\n3-Act Shield Lock Assault (75%, 50%, 25% -> 0 HP)"]
+    subgraph SurvivalLoop["1. Single Endless Survival Phase Loop"]
+        Start["_ready() / init_survival_phase()"] --> Step["step(delta) while GameState.PLAYING\nIncrement time_elapsed (Survival Timer)"]
+        Step --> HUD["Update HUD: TIME MM:SS.d | BOSSES KILLED\nCANNONS X/5 | BULLET POWER Y"]
+        Step --> BreachCheck{"Any Soldier or Boss\nreaches Z >= 9.0?"}
+        BreachCheck -->|No| Step
+        BreachCheck -->|Yes| Defeat["GameState.DEFEAT\nDisplay Survival Time & Bosses Killed\nPress R / SPACE / ENTER to Restart"]
     end
 
-    subgraph VisualForms["2. 3D Articulated Enemy & Mech Silhouettes"]
-        RedMob["Red MobUnit3D.setup('red')"] --> RaiderRig["Build 3D Robot Raider Rig\n(Head, Glowing Visor, Torso, Arms, Legs)\nAnimate stride in step_visuals(delta)"]
-        GiantNode["GiantEnemy3D._ready()"] --> MechRig["Build 3D Armored Mech / Pylon / Vault Rig\n(Core Chassis, Turret Head, Visor, Pauldrons, Cannons)"]
+    subgraph GateStream["2. Dynamic Scrolling & Respawning xN / +N Gates"]
+        GateSpawn["gate_spawn_timer elapsed ->\nSpawn random +N / xN gate at Z in [-18, -14], random X\nOptional horizontal oscillation"] --> GateMove["Every tick: gate.position.z += GATE_SCROLL_SPEED * delta\n(+ optional X oscillation within [-3.2, +3.2])"]
+        GateMove --> BottomCheck{"gate.position.z >= 8.2?"}
+        BottomCheck -->|Yes| GateDespawn["Gate disappears at bottom of screen\n(queue_free & prune)"]
+        BottomCheck -->|No| BossCrushCheck{"Overlaps any advancing\nBoss in active_bosses?"}
+        BossCrushCheck -->|Yes| GateShatter["Boss destroys Gate!\nSpawn 3D Shatter FX & queue_free(gate)"]
     end
 
-    subgraph DestructionSystem["3. Hit Feedback, 3D Shatter FX, & Screen Removal"]
-        HitEvent["Entity.take_damage(dmg)"] --> HitFlash["Apply Emissive Hit Flash & Micro-Jitter"]
-        HitFlash --> CheckZero{"Entity HP <= 0?"}
-        CheckZero -->|No| KeepAlive["Update 3D HP Label & HealthBar"]
-        CheckZero -->|Yes| TriggerDestroy["Disable Collision & Prune Active Array\nSpawn 3D Shatter/Explosion Debris FX (~0.45s)\nHide/Free Entity (0 HP never lingers on screen)"]
+    subgraph EscalatingSpawners["3. Time-Escalating Random Soldier & Boss Spawners"]
+        TimeScale["Difficulty Factor scales with time_elapsed"] --> SoldierSpawner["Soldier Spawner:\nShrinks interval (1.4s -> 0.22s)\nGrows random burst squad size (1 -> 8+)\nSpawns at random X, Z = -23.0, marches +Z"]
+        TimeScale --> BossSpawner["Boss Spawner:\nShrinks interval (10s -> 3.5s) & increases max concurrent Bosses\nScales Boss HP & speed with time_elapsed\nSpawns lane-sized Mech at random X, Z = -24.0, marches +Z"]
     end
 ```
 
 ### Technical Specifications
 
-#### 1. Extended Multi-Wave Stage Progression & Balanced Power Curve (`scripts/mob_control/MobControlMain.gd`)
-- **Automatic Stage Initialization:**
-  - Call `init_stage(0)` at the end of `_ready()` so launching Mob Control 3D from the menu immediately loads Stage 1's full `base_hp`, highway depth, obstacles, and wave state.
-- **Multi-Wave Highway Structure (`total_waves_in_stage`, `current_wave`):**
-  - Each stage in `STAGES` defines `waves: int` (`3` waves in Stage 1, `4` waves in Stages 2–3, `5` waves in Stages 4–5) and wave obstacle layouts.
-  - Each wave spawns a formation of **Destructible HP Walls**, **Moving/Sliding Armored Blocks**, and **Hazard Barriers** across `Z in [-4.5, -12.5]` along with a squad of Red Robot Raiders.
-  - While `active_obstacles` are present on the highway, their frontal footprint intercepts Blue Mobs traveling from the cannons (`Z = +8.0`) toward the backline, and `giant_enemy` advances at a fortified crawl (`GIANT_FORTIFIED_SPEED = 0.18`) until the wave obstacles are destroyed.
-  - Clearing all obstacles in Wave $Y < \text{total\_waves}$ advances `current_wave += 1` and spawns the next wave formation.
-  - Update the top HUD label (`CannonStatusLabel`) and/or wave status display to show `STAGE %d/%d (WAVE %d/%d) | CANNONS: %d/%d | BULLET POWER: %d` (while keeping `CANNONS: %d/%d | BULLET POWER: %d` substring compatibility for existing tests).
-- **Gate-Charge Power Scaling & Cap (`_on_bullet_hit_multiplier_gate`):**
-  - Preserve the exact early-tier behavior verified by `test_scenario_15`: the first 4 `xN` gate hits add cannons `2..5`, and the 5th and 6th hits increment `bullet_power` (`1 -> 3 -> 6`).
-  - Once `cannons.size() == MAX_CANNONS` and `bullet_power >= 6`, require `GATE_CHARGE_THRESHOLD: int = 35` accumulated `xN` gate hits per `+1` `bullet_power` upgrade, capped at `MAX_BULLET_POWER: int = 25`. This eliminates the `bullet_power = 479` runaway while keeping `test_scenario_15` 100% green.
+#### 1. Single Endless Survival Phase & Legacy Test Compatibility (`scripts/mob_control/MobControlMain.gd`)
+- **Survival Mode State (`survival_mode: bool = true`):**
+  - Add `var survival_mode: bool = true`, `var bosses_defeated: int = 0`, `var soldiers_defeated: int = 0`, `var best_survival_time: float = 0.0`, and `var active_bosses: Array[GiantEnemy3DScript] = []`.
+  - In `_ready()`, initialize the Single Endless Survival Phase via `init_survival_phase()` (or `init_stage(0)` with `survival_mode = true` active by default).
+  - **Backward Compatibility for Existing Test Suite (`tests/test_mob_control.gd` Scenarios 1–16):**
+    - Preserve `init_stage(stage_idx: int)` and `STAGES` so existing unit tests that explicitly call `init_stage(stage_idx)` or inspect `giant_enemy` / `active_obstacles` continue to pass 100% without regression.
+    - When `survival_mode == true`:
+      - The static scene `giant_enemy` boss is either hidden (`visible = false`, disabled from contact/defeat evaluation) or converted into the first advancing lane-sized Boss in `active_bosses`, and **no static `active_obstacles`** (`speed = 0.0`) are spawned to block the highway.
+      - Defeating a Boss in `active_bosses` spawns a 3D explosion (`_spawn_destruction_fx`), increments `bosses_defeated += 1`, removes and frees that Boss from `active_bosses`, and **keeps `state == GameState.PLAYING`** so the phase never stops until the player is overrun (`Z >= 9.0`).
+      - When any live Soldier (`red_mobs`) or Boss (`active_bosses`) reaches `global_position.z >= 9.0`, `state` transitions to `GameState.DEFEAT`, `best_survival_time = maxf(best_survival_time, time_elapsed)`, and `defeat_banner.text` displays the survival time (e.g., `"DEFEAT! SURVIVED: %.1fs (BOSSES: %d)\nPRESS R TO RESTART OR ESC FOR MENU"`).
 
-#### 2. Highway Obstacle System (`scripts/mob_control/GiantEnemy3D.gd` & `scripts/mob_control/MobControlMain.gd`)
-- Extend `GiantEnemy3D.EntityMode` (or obstacle configuration on `GiantEnemy3D`) to support:
-  - `EntityMode.BASE` (Giant Mech Boss)
-  - `EntityMode.PYLON` (Shield Generator Pylon)
-  - `EntityMode.WALL` (Segmented Destructible Armor/Brick Wall, e.g. `half_width = 1.8`, `hp = 180..900`)
-  - `EntityMode.MOVING_BLOCK` (Sliding Armored Barrier oscillating horizontally `position.x = base_x + sin(time * osc_speed + phase) * osc_amp` clamped to `[-4.2, +4.2]`, `hp = 220..1100`)
-  - `EntityMode.HAZARD` (Spiked Hazard Barrier that consumes colliding Blue Mobs and deals `2x` attrition penalty to multi-power bullets until its `hp = 150..750` is depleted)
-- Enable `auto_spawn_vaults = true` during normal stage gameplay (`init_stage`) while keeping `active_obstacles: Array[Node3D] = []` separate from `active_vaults` and `active_pylons` so existing tests asserting `active_vaults.size() == 0` on `init_stage(0)` remain 100% compatible if `auto_spawn_vaults` is toggled, or spawn stage obstacles in `active_obstacles`.
-  - *Compatibility Note:* In `test_scenario_10` and `test_scenario_12`, tests check `active_vaults.size()` after `init_stage(0)`. Therefore, stage wave obstacles (including armored gate-guard walls) are tracked in `active_obstacles: Array[Node3D]`, keeping `active_vaults` strictly for `spawn_vault` / `spawn_vault_for_gate` calls!
+#### 2. Dynamic Scrolling, Despawning, & Respawning `xN` and `+N` Gates (`scripts/mob_control/MultiplierGate3D.gd` & `scripts/mob_control/MobControlMain.gd`)
+- **Gate Forward Motion & Optional Horizontal Drift (`MultiplierGate3D.gd`):**
+  - Add `@export var scroll_speed: float = 1.8`, `@export var move_enabled: bool = true`, `var osc_enabled: bool = false`, `var osc_base_x: float = 0.0`, `var osc_amplitude: float = 1.6`, `var osc_speed: float = 1.8`, and `var osc_time: float = 0.0` to `MultiplierGate3D`.
+  - Add `func step_gate(delta: float) -> void:` on `MultiplierGate3D` which advances `position.z += scroll_speed * delta` when `move_enabled` is true, and updates `position.x = clampf(osc_base_x + sin(osc_time * osc_speed) * osc_amplitude, -3.2, 3.2)` when `osc_enabled` is true.
+- **Bottom-of-Screen Despawn & Continuous Upper-Highway Respawn (`MobControlMain.gd`):**
+  - Define constants:
+    - `const GATE_SCROLL_SPEED: float = 1.8`
+    - `const GATE_DESPAWN_Z: float = 8.2`
+    - `const GATE_SPAWN_Z: float = -16.5`
+    - `const GATE_SPAWN_INTERVAL_MIN: float = 2.6`
+    - `const GATE_SPAWN_INTERVAL_MAX: float = 4.2`
+  - During `step(delta)` in Phase 1 (when `survival_mode == true` or `dynamic_gates_enabled == true`):
+    - Call `gate.step_gate(delta)` on all live gates in `get_all_gates()`.
+    - In Phase 4 (`_cleanup_out_of_bounds_mobs()` / `_cleanup_out_of_bounds_gates()`), any gate whose `global_position.z >= GATE_DESPAWN_Z` is removed and freed (`queue_free()`) as it reaches the bottom of the screen.
+    - Advance `gate_spawn_timer += delta`. Whenever `gate_spawn_timer >= next_gate_spawn_interval` (or active gates drop below a minimum floor of `2`), spawn 1 or 2 new randomized `MultiplierGate3D` blocks (`spawn_random_gate()`) at `Z = GATE_SPAWN_Z` (e.g., `-16.5`), with randomized lane `X in [-2.8, +2.8]`, randomized operation (`"+"` with values `2, 3, 4, 5, 6` or `"x"` with values `2, 3, 4`), and a `40%` chance of horizontal oscillation (`osc_enabled = true`).
 
-#### 3. Articulated 3D Enemy & Boss Silhouettes (`scripts/mob_control/MobUnit3D.gd` & `scripts/mob_control/GiantEnemy3D.gd`)
-- **Red Enemy Raider 3D Form (`MobUnit3D`):**
-  - When `setup("red", ...)` is called on `MobUnit3D`:
-    - Hide or repurpose the base capsule into the torso core and procedurally attach a `RaiderModel3D` (`Node3D`) hierarchy if not already present:
-      - `HeadMesh` (`BoxMesh` / `SphereMesh` helmet at `y = +0.32`)
-      - `VisorMesh` (Glowing cyan/yellow `BoxMesh` visor slit across the front face `+Z`)
-      - `TorsoMesh` (Armored crimson/dark-metal `BoxMesh` chest plate with shoulder pads)
-      - `LeftArmPivot` & `RightArmPivot` (Articulated arm meshes)
-      - `LeftLegPivot` & `RightLegPivot` (Articulated leg meshes)
-    - Add `step_visuals(delta: float)` called during Phase 1 motion for live Red Mobs, swinging arms and legs in counter-phase (`sin(anim_time * 12.0)`) and bobbing the torso so Red Enemies visibly march down the highway as 3D robot raiders.
-- **Giant Mech Boss, Pylon, & Obstacle 3D Forms (`GiantEnemy3D`):**
-  - Build a procedural `MechModel3D` (`Node3D`) on `GiantEnemy3D` based on `entity_mode`:
-    - **`BASE` (Giant Boss Mech):** Multi-part 3D Mech Fortress featuring a central armored `CoreTorso`, elevated `CommandHead` with a glowing red `VisorStrip`, heavy `LeftPauldron` and `RightPauldron` shoulder armor, and twin forward-facing `ShoulderCannons`.
-    - **`PYLON`:** 3D Hex/Cylinder Energy Pylon with glowing cyan shield rings and core spire.
-    - **`WALL` / `MOVING_BLOCK` / `HAZARD`:** Distinct 3D reinforced bunker wall segments (with hazard stripes, armor plates, or crimson spikes) sized accurately to `half_width`.
+#### 3. Advancing Bosses & Boss Gate Destruction (`scripts/mob_control/MobControlMain.gd` & `scripts/mob_control/GiantEnemy3D.gd`)
+- **Lane-Sized Advancing Bosses (`active_bosses`):**
+  - Add `func spawn_boss(pos: Vector3 = Vector3.ZERO, hp_val: int = -1, speed_val: float = -1.0) -> GiantEnemy3DScript:`:
+    - Instantiates a `GiantEnemy3D` in `EntityMode.BASE` with lane-sized dimensions (`half_width = 1.55`, `half_depth = 1.0`, `half_height = 1.25`), `speed = speed_val` (default `BOSS_BASE_SPEED = 2.6` scaling up with `time_elapsed`, always faster than `GATE_SCROLL_SPEED = 1.8`), and `hp = hp_val` (scaling with `time_elapsed`).
+    - Adds the Boss to `active_bosses` and the `"bosses"` group.
+  - Every tick in Phase 1 (`step(delta)`), each Boss in `active_bosses` advances forward toward the bottom of the screen:
+    - `boss.position.z += boss.speed * delta`
+    - Calls `boss.step_visuals(delta)` (including subtle mech marching bob/stride).
+- **Boss Gate Destruction (`_resolve_boss_gate_destruction()`):**
+  - During Phase 2 Contact Resolution, check every live Boss in `active_bosses` (and `giant_enemy` if visible/active) against all live gates in `get_all_gates()`:
+    - If `abs(boss.global_position.x - gate.global_position.x) <= (boss.half_width + 1.8)` and `abs(boss.global_position.z - gate.global_position.z) <= (boss.half_depth + 0.45)`:
+      - Call `on_boss_destroy_gate(boss, gate)`:
+        - Spawn a vibrant cyan/blue 3D shatter burst at `gate.global_position` (`_spawn_destruction_fx(gate_pos, Vector3(2.5, 1.5, 0.8), Color(0.25, 0.75, 1.0))`).
+        - Disable and `queue_free()` the destroyed gate immediately so it disappears from the screen.
+- **Blue Bullet vs. Advancing Bosses (`_resolve_boss_contacts()`):**
+  - Check live `blue_mobs` against each Boss in `active_bosses`.
+  - On collision, consume the Blue Mob and deal `blue.power` damage to the Boss (`boss.take_damage(dmg)`).
+  - When `boss.hp <= 0`:
+    - Spawn a large 3D Mech Explosion (`_spawn_destruction_fx(boss_pos, Vector3(3.5, 2.2, 1.8), Color(1.0, 0.72, 0.15))`).
+    - Increment `bosses_defeated += 1`.
+    - Remove from `active_bosses` and `queue_free()` the Boss immediately so it disappears completely from the screen.
 
-#### 4. Hit Flash, 3D Destruction Animation, & Screen Removal (`scripts/mob_control/MobControlMain.gd` & `scripts/mob_control/GiantEnemy3D.gd`)
-- **Hit Feedback (`GiantEnemy3D.take_damage`):**
-  - When damaged (`hp > 0`), trigger a `0.10s` bright hit-flash material override and a brief Z/X recoil pulse (`_hit_flash_timer = 0.10`).
-- **Destruction Animation (`_spawn_destruction_fx(world_pos: Vector3, extent: Vector3, base_color: Color)`):**
-  - Whenever any **Wall**, **Moving Block**, **Hazard Barrier**, **Vault**, **Shield Pylon**, **Red Raider**, or the **Giant Boss Mech** reaches `hp <= 0`:
-    1. Spawn a standalone `Node3D` (`DestructionFX3D`) added to `MobControlMain` (tracked in `active_destruction_fx: Array[Node3D]`) containing `10..18` 3D debris fragments (`MeshInstance3D` cubes/shards) + an expanding shockwave core.
-    2. Each frame in `step(delta)` (and `_process(delta)` so the explosion finishes smoothly even if `state` transitions to `STAGE_CLEAR` or `VICTORY`!), advance each fragment's 3D trajectory (`pos += vel * delta`, `vel.y -= 18.0 * delta`, `rotation += ang_vel * delta`, scale down to `0.0` over `0.45s`) and free the FX node once `elapsed >= 0.45s`.
-    3. **Complete Disappearance from Screen:**
-       - For **Walls, Moving Blocks, Hazards, Vaults, Pylons, and Red Raiders**: immediately remove from active arrays, disable collision, and `queue_free()`.
-       - For the **Giant Mech Boss (`giant_enemy`)**: when `giant_enemy.hp <= 0`, immediately set `giant_enemy.visible = false` and spawn a large multi-burst Boss Destruction FX at `giant_enemy.global_position` so the Boss **completely disappears from the screen** instead of lingering with `HP: 0`. Calling `giant_enemy.reset(p_hp)` on the next stage or retry restores `giant_enemy.visible = true`.
+#### 4. Escalating Random Spawners for Soldiers & Bosses Over Time (`scripts/mob_control/MobControlMain.gd`)
+- **Soldier Spawner Escalation (`_step_survival_spawners(delta)`):**
+  - As `time_elapsed` increases (in seconds):
+    - Compute dynamic soldier spawn interval:
+      $$\text{soldier\_interval} = \max\left(0.25,\; 1.35 - \frac{\text{time\_elapsed}}{60.0} \times 0.55\right) \times \text{rng.randf\_range}(0.75, 1.25)$$
+    - Compute dynamic soldier burst count per spawn event:
+      $$\text{max\_burst} = \min\left(8,\; 1 + \lfloor \text{time\_elapsed} / 15.0 \rfloor\right)$$
+      $$\text{burst\_count} = \text{rng.randi\_range}(1, \text{max\_burst})$$
+    - Each Soldier in the burst spawns at a random lane `X = rng.randf_range(-4.2, 4.2)`, staggered slightly in `Z = -22.0 - float(i) * 0.55`, with speed scaling mildly over time (`RED_SPEED * clampf(1.0 + time_elapsed / 180.0, 1.0, 1.65)`).
+- **Boss Spawner Escalation (`_step_survival_spawners(delta)`):**
+  - Ensure an initial Boss spawns early in the phase (e.g., at `Z = -20.0` on survival start or within `t = 2.0s`) so the player immediately sees an advancing Boss threatening the gates.
+  - Compute dynamic Boss spawn interval:
+    $$\text{boss\_interval} = \max\left(3.5,\; 11.0 - \frac{\text{time\_elapsed}}{30.0} \times 2.0\right) \times \text{rng.randf\_range}(0.8, 1.2)$$
+  - Compute maximum concurrent Bosses allowed on the highway:
+    $$\text{max\_concurrent\_bosses} = \min\left(5,\; 1 + \lfloor \text{time\_elapsed} / 25.0 \rfloor\right)$$
+  - Compute scaled Boss HP and forward speed:
+    $$\text{boss\_hp} = 140 + \lfloor \text{time\_elapsed} \times 4.5 \rfloor$$
+    $$\text{boss\_speed} = \text{clampf}\left(2.5 + \frac{\text{time\_elapsed}}{120.0} \times 0.8,\; 2.5,\; 3.8\right)$$
+  - When `boss_spawn_timer >= next_boss_interval` and `active_bosses.size() < max_concurrent_bosses`, spawn a new Boss at random `X = rng.randf_range(-2.8, 2.8)`, `Z = -24.0` (or spawn 2 Bosses in separate lanes during late-game high-intensity surges!).
 
 ---
 
 ### BDD Acceptance Criteria (Given / When / Then)
 
 ```gherkin
-Feature: Mob Control 3D Extended Multi-Wave Phases, Obstacles, 3D Enemy Forms, and Destruction Animations
+Feature: Mob Control 3D Single Endless Survival Phase, Moving & Respawning Gates, Gate-Crushing Bosses, and Escalating Random Waves
 
-  Scenario: GWT 1 - Multi-Wave Stage Progression & Automatic Stage 1 Initialization
-    Given a newly instantiated MobControlMain added to the SceneTree
-    When _ready() executes
-    Then current_stage_index is 0 and giant_enemy.hp is initialized to Stage 1 base_hp (1200)
-    And current_wave is 1 with total_waves_in_stage >= 3
-    And active_obstacles is populated with Wave 1 highway obstacles (Destructible Walls, Moving Blocks, or Hazard Barriers) positioned between the gates and the Giant Boss
-    When all obstacles in Wave 1 are destroyed during step(delta)
-    Then current_wave advances to 2 and Wave 2 obstacles spawn on the highway.
+  Scenario: GWT 1 - Single Endless Survival Phase & Continuous Combat on Boss Death
+    Given a MobControlMain instance running in survival_mode (the default single phase)
+    When step(delta) executes over time and an active Boss's HP is reduced to 0 by Blue Mobs
+    Then the Boss spawns a 3D destruction explosion, is removed from active_bosses, and disappears from the screen
+    And bosses_defeated increments by 1 while state remains GameState.PLAYING (no STAGE_CLEAR interruption)
+    And the HUD displays the live survival timer (TIME) and bosses defeated count.
 
-  Scenario: GWT 2 - Balanced Gate-Charge Power Scaling & Cap
-    Given a MobControlMain instance at Stage 1 with 5 active cannons and bullet_power == 6
-    When subsequent blue bullets hit an "x2" or "x3" MultiplierGate3D
-    Then bullet_power does not increase on every single bullet hit, but accumulates gate_power_charge and increments by +1 only every GATE_CHARGE_THRESHOLD hits
-    And bullet_power never exceeds MAX_BULLET_POWER (25).
-
-  Scenario: GWT 3 - Three Obstacle Types (Destructible Walls, Moving Blocks, Hazard Barriers)
-    Given a MobControlMain instance in GameState.PLAYING with a WALL obstacle, a MOVING_BLOCK obstacle, and a HAZARD obstacle in active_obstacles
+  Scenario: GWT 2 - Moving xN and +N Gates, Bottom-of-Screen Disappearance, & Upper-Highway Respawning
+    Given active MultiplierGate3D (+N and xN) blocks on the highway during PLAYING
     When step(delta) executes
-    Then the MOVING_BLOCK obstacle oscillates horizontally along X within highway bounds [-4.5, 4.5]
-    And a Blue Mob colliding with any active obstacle inflicts its power as damage to the obstacle and is consumed before reaching giant_enemy
-    When an obstacle's hp reaches 0
-    Then the obstacle is immediately removed from active_obstacles, queued for deletion, and spawns a 3D destruction animation in active_destruction_fx.
+    Then every active gate moves forward along +Z toward the bottom of the screen (position.z increases by scroll_speed * delta)
+    When a gate reaches the bottom of the screen (global_position.z >= GATE_DESPAWN_Z)
+    Then the gate disappears and is freed from the scene
+    And as gate_spawn_timer advances, new random +N and xN gates spawn in the upper highway (Z <= -14.0) at random X lanes.
 
-  Scenario: GWT 4 - Articulated 3D Enemy Raider & Giant Mech Forms
-    Given a Red MobUnit3D initialized via setup("red") and a GiantEnemy3D in EntityMode.BASE
-    When both nodes are in the scene tree and step(delta) executes
-    Then the Red MobUnit3D contains a multi-part 3D raider visual hierarchy (head, visor, torso, arms, legs) that animates limb rotation during movement
-    And the GiantEnemy3D contains a multi-part 3D mech visual hierarchy (chassis, head/visor, shoulder pauldrons/cannons) rather than a single bare box.
+  Scenario: GWT 3 - Advancing Bosses Destroy xN and +N Gates on Contact
+    Given an advancing Boss in active_bosses marching forward (+Z) faster than a MultiplierGate3D in the same lane
+    When step(delta) resolves contacts and the Boss's 3D footprint overlaps the MultiplierGate3D
+    Then the Boss destroys the gate on contact, spawning a 3D shatter FX in active_destruction_fx
+    And the gate is immediately freed/removed from the screen while the Boss continues marching forward toward the cannons.
 
-  Scenario: GWT 5 - Hit Flash, 3D Destruction Animation, & Complete Disappearance on 0 HP
-    Given a GiantEnemy3D (Boss, Pylon, Vault, or Wall) with HP > 0
-    When it takes non-lethal damage via take_damage()
-    Then it triggers a visible hit-flash/recoil state
-    When its HP reaches 0 (including the Stage Boss triggering STAGE_CLEAR or VICTORY)
-    Then a 3D shatter/explosion effect is spawned in active_destruction_fx with flying 3D debris fragments
-    And destroyed Walls, Vaults, Pylons, and Red Enemies are freed from the scene
-    And the defeated Giant Boss sets giant_enemy.visible = false so no entity with "HP: 0" remains visible on screen.
+  Scenario: GWT 4 - Escalating Random Soldier & Boss Spawns Over Survival Time
+    Given a MobControlMain instance in survival_mode
+    When time_elapsed increases from early phase (e.g. 5s) to late phase (e.g. 90s)
+    Then the Soldier spawner interval decreases and maximum soldier squad burst size increases, spawning more soldiers at randomized X coordinates
+    And the Boss spawner interval decreases, maximum concurrent Boss count increases (>= 2), and newly spawned Bosses have higher HP and march forward (+Z).
+
+  Scenario: GWT 5 - Survival Phase Defeat on Cannon Line Breach & Full Reset on Retry
+    Given a MobControlMain instance in survival_mode with time_elapsed > 0
+    When any advancing Soldier or Boss reaches Z >= 9.0
+    Then state latches to GameState.DEFEAT and DefeatBanner becomes visible showing the survival time
+    When the player presses R, SPACE, or ENTER (non-echo)
+    Then the survival phase resets cleanly to time_elapsed == 0.0, bosses_defeated == 0, 1 cannon with bullet_power == 1, fresh moving gates, and state == GameState.PLAYING.
 ```
 
 ---
@@ -171,17 +188,18 @@ Feature: Mob Control 3D Extended Multi-Wave Phases, Obstacles, 3D Enemy Forms, a
 
 | File Path | Action | Description |
 |---|---|---|
-| `scripts/mob_control/MobControlMain.gd` | **Modify** | Call `init_stage(0)` in `_ready()`, implement multi-wave obstacle spawner (`current_wave`, `total_waves_in_stage`, `active_obstacles`), gate-charge power scaling (`GATE_CHARGE_THRESHOLD`, `MAX_BULLET_POWER`), obstacle contact resolution & horizontal oscillation, `_spawn_destruction_fx()` & debris stepping, and hide `giant_enemy` when `hp <= 0`. |
-| `scripts/mob_control/GiantEnemy3D.gd` | **Modify** | Add `WALL`, `MOVING_BLOCK`, and `HAZARD` modes to `EntityMode`, build composite 3D Mech / Pylon / Bunker Wall visual hierarchy, implement hit-flash & recoil feedback on `take_damage()`, and restore `visible = true` in `reset()`. |
-| `scripts/mob_control/MobUnit3D.gd` | **Modify** | Build composite 3D Robot Raider visual hierarchy (`Head`, `Visor`, `Torso`, `Arms`, `Legs`) for `team == "red"` and animate marching stride in `step_visuals(delta)`. |
-| `tests/test_mob_control.gd` | **Modify** | Add `test_scenario_16_extended_waves_obstacles_3d_forms_and_destruction_fx()` verifying GWT 1–5 while preserving 100% pass rate on Scenarios 1–15. |
-| `tests/test_mob_control.py` | **Modify** | Add static contract assertions for multi-wave progression, obstacle modes, 3D raider/mech builders, and destruction FX cleanup. |
+| `scripts/mob_control/MobControlMain.gd` | **Modify** | Implement Single Endless Survival Phase (`survival_mode`, `init_survival_phase()`, live survival timer HUD), dynamic gate scrolling/despawning/respawning (`GATE_SCROLL_SPEED`, `GATE_DESPAWN_Z`, `spawn_random_gate()`), lane-marching `active_bosses` spawner, Boss-vs-Gate destruction (`_resolve_boss_gate_destruction()`, `on_boss_destroy_gate()`), time-escalating Soldier & Boss wave formulas, and full backward compatibility with `init_stage()` for existing test scenarios. |
+| `scripts/mob_control/MultiplierGate3D.gd` | **Modify** | Add `scroll_speed`, `move_enabled`, horizontal oscillation properties (`osc_enabled`, `osc_base_x`, `osc_amplitude`, `osc_speed`), and `step_gate(delta: float)` so `xN` and `+N` blocks move forward and optionally slide across lanes. |
+| `scripts/mob_control/GiantEnemy3D.gd` | **Modify** | Support lane-sized Boss dimensions (`half_width = 1.55`), dynamic ` _build_entity_model()` scaling when `half_width` changes, and forward marching stride/bob animation in `step_visuals(delta)`. |
+| `tests/test_mob_control.gd` | **Modify** | Add `test_scenario_17_endless_survival_scrolling_gates_and_boss_gate_destruction()` validating GWT 1–5 while keeping Scenarios 1–16 100% green. |
+| `tests/test_mob_control.py` | **Modify** | Add static contract checks for survival mode, gate scrolling/despawning/respawning, boss gate destruction, and time-escalating soldier/boss spawners. |
 
 ---
 
 ### INVEST Subtask Breakdown
 
-- **Slice 1 (Standalone Task — Pattern A, $\le 350$ LOC, $\le 5$ files): Extended Multi-Wave Highway Progression, 3-Type Obstacle System, 3D Enemy/Mech Forms, & Destruction FX**
-  - Update `MobUnit3D.gd` and `GiantEnemy3D.gd` with composite 3D Robot Raider and Armored Mech/Obstacle visual rigs plus hit-flash feedback.
-  - Update `MobControlMain.gd` with automatic `init_stage(0)` on ready, multi-wave obstacle formations (`WALL`, `MOVING_BLOCK`, `HAZARD`), balanced gate-charge power scaling, 3D shatter/explosion destruction animations (`active_destruction_fx`), and immediate screen disappearance (`giant_enemy.visible = false` on `hp <= 0`, `queue_free()` on obstacles/pylons/vaults).
-  - Add comprehensive automated tests in `tests/test_mob_control.gd` and `tests/test_mob_control.py`.
+- **Slice 1 (Standalone Task — Pattern A, $\le 350$ LOC, $\le 5$ files): Endless Survival Phase, Scrolling & Respawning Gates, Gate-Crushing Bosses, & Escalating Random Enemy Spawners**
+  - Update `MultiplierGate3D.gd` with forward scrolling (`step_gate(delta)`) and optional horizontal lane oscillation.
+  - Update `GiantEnemy3D.gd` to support lane-sized advancing 3D Mech Bosses with marching visual feedback.
+  - Update `MobControlMain.gd` with the Single Endless Survival Phase loop, bottom-of-screen gate despawning (`Z >= 8.2`) and upper-highway random gate respawning, Boss-vs-Gate destruction with 3D shatter FX, and time-escalating random Soldier & Boss spawners.
+  - Add automated unit and contract tests in `tests/test_mob_control.gd` and `tests/test_mob_control.py`.
